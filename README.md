@@ -5,12 +5,12 @@
 </p>
 
 ```
-   ___  ____  _  _   __
-  / _ \/ __ \/ \/ /  (o o)
- | | | | |  | \  /  (  V  )
- | |_| | |__|  \/    |~~~|
-  \___/ \____/  ()   +---+
-       Noctyl
+  _   ___     (o o)   _   _
+ | \ | _ \   (  V  ) | | | |
+ |  \| __/    |~~~|  | |_| |
+ |_| |_|      +---+   \__/
+ N   o   c     t     y   l
+    
 ```
 
 **Multi-agent workflow token usage estimator** — estimate token usage before you burn through your budget.
