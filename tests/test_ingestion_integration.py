@@ -20,6 +20,7 @@ from noctyl.ingestion import (
     extract_entry_points,
     file_contains_langgraph,
     has_langgraph_import,
+    run_pipeline_on_directory,
     track_stategraph_instances,
 )
 
@@ -339,3 +340,42 @@ graph.add_conditional_edges("b", router, {"next": "a", "done": END})
         assert d["schema_version"] == "1.0"
         json_out = json.dumps(d, sort_keys=True)
         assert "a" in json_out and "b" in json_out
+
+
+def test_run_pipeline_on_directory_unreadable_file_does_not_crash():
+    """
+    run_pipeline_on_directory does not crash when a .py file cannot be read
+    (e.g. invalid UTF-8). Returns graphs from valid files and a warning for the bad file.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+        (root / "src" / "bad.py").write_bytes(b"\xff\xfe invalid utf-8")
+
+        results, warnings = run_pipeline_on_directory(root)
+
+        assert len(results) >= 1
+        assert results[0]["entry_point"] == "a"
+        assert any("could not read" in w for w in warnings)
+
+
+def test_run_pipeline_on_directory_syntax_error_only_does_not_crash():
+    """
+    run_pipeline_on_directory on a dir with only a syntax-error file returns
+    empty results and does not crash.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "broken.py").write_text("from langgraph.graph import StateGraph\nx = (  # unclosed")
+
+        results, warnings = run_pipeline_on_directory(root)
+
+        assert results == []
+        # May have warnings or not; must not raise

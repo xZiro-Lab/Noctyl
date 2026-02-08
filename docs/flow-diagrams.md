@@ -235,4 +235,44 @@ flowchart LR
 
 ---
 
+## 9. Error handling (Phase-1)
+
+**Strategy:** Best-effort. Invalid or unsupported code: warn and continue; skip and report; emit partial when possible. No fail-fast (see [phase1-scope.md](phase1-scope.md) §8).
+
+```mermaid
+flowchart TB
+  Root[root_path] --> Runner[run_pipeline_on_directory]
+  Runner --> Discover[discover_python_files]
+  Discover --> Paths[list of .py paths]
+  Paths --> Loop[for each path]
+  Loop --> Read[read_text utf-8]
+  Read -->|OSError or UnicodeDecodeError| WarnSkip["append warning: path could not read; skip"]
+  WarnSkip --> Loop
+  Read -->|success| HasLangGraph[file_contains_langgraph]
+  HasLangGraph -->|False| Loop
+  HasLangGraph -->|True| Ingest[track + extract nodes edges entry]
+  Ingest --> Build[build_workflow_graph + workflow_graph_to_dict]
+  Build --> Append[append to results]
+  Append --> Loop
+  Loop --> Done[return results and warnings]
+```
+
+**Where the library does not crash:** All public ingestion APIs that take `source: str` catch `SyntaxError` and return safe empty/false values:
+- `has_langgraph_import` / `file_contains_langgraph` → False
+- `track_stategraph_instances` → []
+- `extract_add_node_calls` → {}
+- `extract_add_edge_calls` / `extract_add_conditional_edges` → {}
+- `extract_entry_points` → ({}, [])
+
+**Where warnings come from:**
+- **`extract_entry_points`** returns `(entry_by_graph, warnings)` with messages:
+  - `"graph_id {gid}: no entry point detected"`
+  - `"graph_id {gid}: ambiguous entry (multiple add_edge(START, ...))"`
+- **`run_pipeline_on_directory`** (when reading files) appends:
+  - `"{path}: could not read"` on OSError or UnicodeDecodeError for that file.
+
+**Tool does not crash:** `run_pipeline_on_directory(root_path)` runs discover → read each file → ingest → build WorkflowGraph → to_dict; it catches file-read errors and skips with a warning, so it never raises for invalid or unreadable files.
+
+---
+
 *Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, etc.).*
