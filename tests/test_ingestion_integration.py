@@ -3,8 +3,12 @@ High-level integration tests: detector, tracker, node extractor, and edge extrac
 
 One source file is run through the full ingestion pipeline; we assert all components
 agree on graph presence, graph_id, and that nodes/edges belong to the same graph.
+Integration with graph schema: ingestion outputs -> WorkflowGraph -> deterministic JSON.
 """
 
+import json
+
+from noctyl.graph import build_workflow_graph, workflow_graph_to_dict
 from noctyl.ingestion import (
     extract_add_conditional_edges,
     extract_add_edge_calls,
@@ -87,6 +91,62 @@ graph.add_conditional_edges("tool", router, {"continue": "agent", "stop": END})
     entry_by_graph, entry_warnings = extract_entry_points(source, file_path, tracked)
     assert entry_by_graph.get(graph_id) == "agent"
     assert entry_warnings == []
+
+
+def test_ingestion_to_workflow_graph_and_deterministic_json():
+    """
+    Full integration: ingestion outputs -> WorkflowGraph -> JSON.
+    Asserts build_workflow_graph assembles correctly, workflow_graph_to_dict matches
+    schema shape, and serialization is deterministic (same JSON twice).
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_conditional_edges("b", router, {"next": "a", "done": END})
+"""
+    file_path = "app/workflow.py"
+    tracked = track_stategraph_instances(source, file_path)
+    assert len(tracked) == 1
+    graph_id = tracked[0].graph_id
+
+    nodes = extract_add_node_calls(source, file_path, tracked)[graph_id]
+    edges = extract_add_edge_calls(source, file_path, tracked)[graph_id]
+    cond_edges = extract_add_conditional_edges(source, file_path, tracked)[graph_id]
+    entry_by_graph, _ = extract_entry_points(source, file_path, tracked)
+    entry_point = entry_by_graph.get(graph_id)
+
+    wg = build_workflow_graph(
+        graph_id, nodes, edges, cond_edges, entry_point
+    )
+    assert wg.graph_id == graph_id
+    assert wg.entry_point == "a"
+    assert len(wg.nodes) == 2
+    assert len(wg.edges) == 2
+    assert len(wg.conditional_edges) == 2
+
+    d = workflow_graph_to_dict(wg)
+    assert d["schema_version"] == "1.0"
+    assert d["graph_id"] == graph_id
+    assert d["entry_point"] == "a"
+    assert len(d["nodes"]) == 2
+    assert len(d["edges"]) == 2
+    assert len(d["conditional_edges"]) == 2
+    node_names = {n["name"] for n in d["nodes"]}
+    assert node_names == {"a", "b"}
+
+    json1 = json.dumps(d, sort_keys=True)
+    d2 = workflow_graph_to_dict(wg)
+    json2 = json.dumps(d2, sort_keys=True)
+    assert json1 == json2, "serialization must be deterministic"
+
+    parsed = json.loads(json1)
+    assert parsed["entry_point"] == "a"
+    assert len(parsed["nodes"]) == 2
+    assert len(parsed["conditional_edges"]) == 2
 
 
 def test_full_pipeline_one_workflow_in_sync():
