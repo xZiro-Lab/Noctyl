@@ -208,3 +208,99 @@ def extract_add_conditional_edges(
         result[graph_id].sort(key=lambda e: (e.line, e.condition_label))
 
     return result
+
+
+def extract_entry_points(
+    source: str,
+    file_path: str,
+    tracked_graphs: list[TrackedStateGraph],
+) -> tuple[dict[str, str | None], list[str]]:
+    """
+    Detect workflow entry point per graph: set_entry_point(name) or infer from add_edge(START, target).
+
+    Returns (entry_by_graph, warnings) where entry_by_graph[graph_id] is the entry node name or None,
+    and warnings lists messages for graphs with no entry detected or inferred.
+    On SyntaxError returns ({}, []).
+    """
+    entry_by_graph: dict[str, str | None] = {
+        t.graph_id: None for t in tracked_graphs
+    }
+    warnings: list[str] = []
+
+    if not tracked_graphs:
+        return (entry_by_graph, warnings)
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ({}, [])
+
+    roots: set[str] = set()
+    graph_id_by_var: dict[str, str] = {}
+    for t in tracked_graphs:
+        if t.variable_name is not None:
+            roots.add(t.variable_name)
+            graph_id_by_var[t.variable_name] = t.graph_id
+
+    if not roots:
+        for gid in entry_by_graph:
+            warnings.append(f"graph_id {gid}: no entry point detected")
+        return (entry_by_graph, warnings)
+
+    alias_map = build_alias_map(tree, roots)
+
+    # Pass 1: set_entry_point(name)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr != "set_entry_point":
+                continue
+            receiver = node.func.value
+            root = resolve_receiver(receiver, roots, alias_map)
+            if root is None:
+                continue
+            graph_id = graph_id_by_var.get(root)
+            if graph_id is None:
+                continue
+            if len(node.args) < 1:
+                continue
+            name_str = _edge_arg_to_string(node.args[0])
+            entry_by_graph[graph_id] = name_str
+
+    # Pass 2: add_edge(START, target) per graph for fallback
+    start_targets_by_graph: dict[str, list[str]] = {
+        t.graph_id: [] for t in tracked_graphs
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr != "add_edge":
+                continue
+            receiver = node.func.value
+            root = resolve_receiver(receiver, roots, alias_map)
+            if root is None:
+                continue
+            graph_id = graph_id_by_var.get(root)
+            if graph_id is None:
+                continue
+            if len(node.args) < 2:
+                continue
+            source_str = _edge_arg_to_string(node.args[0])
+            if source_str != "START":
+                continue
+            target_str = _edge_arg_to_string(node.args[1])
+            start_targets_by_graph[graph_id].append(target_str)
+
+    # Fallback and warnings
+    for graph_id in entry_by_graph:
+        if entry_by_graph[graph_id] is not None:
+            continue
+        targets = start_targets_by_graph.get(graph_id, [])
+        if len(targets) == 1:
+            entry_by_graph[graph_id] = targets[0]
+        elif len(targets) == 0:
+            warnings.append(f"graph_id {graph_id}: no entry point detected")
+        else:
+            warnings.append(
+                f"graph_id {graph_id}: ambiguous entry (multiple add_edge(START, ...))"
+            )
+
+    return (entry_by_graph, warnings)

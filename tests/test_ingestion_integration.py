@@ -5,6 +5,16 @@ One source file is run through the full ingestion pipeline; we assert all compon
 agree on graph presence, graph_id, and that nodes/edges belong to the same graph.
 """
 
+from noctyl.ingestion import (
+    extract_add_conditional_edges,
+    extract_add_edge_calls,
+    extract_add_node_calls,
+    extract_entry_points,
+    file_contains_langgraph,
+    has_langgraph_import,
+    track_stategraph_instances,
+)
+
 
 def test_full_system_sync_all_components():
     """
@@ -73,14 +83,10 @@ graph.add_conditional_edges("tool", router, {"continue": "agent", "stop": END})
         assert e.source in node_names or e.source == "START"
         assert e.target in node_names or e.target == "END"
 
-from noctyl.ingestion import (
-    extract_add_conditional_edges,
-    extract_add_edge_calls,
-    extract_add_node_calls,
-    file_contains_langgraph,
-    has_langgraph_import,
-    track_stategraph_instances,
-)
+    # 7. Entry point: detected or inferred (from add_edge(START, "agent"))
+    entry_by_graph, entry_warnings = extract_entry_points(source, file_path, tracked)
+    assert entry_by_graph.get(graph_id) == "agent"
+    assert entry_warnings == []
 
 
 def test_full_pipeline_one_workflow_in_sync():

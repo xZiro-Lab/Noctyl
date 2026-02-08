@@ -27,6 +27,7 @@ flowchart LR
     NodeExt -->|graph_id to ExtractedNode list| OutNodes
     EdgeExt -->|graph_id to ExtractedEdge list| OutEdges
     EdgeExt -->|graph_id to ExtractedConditionalEdge list| OutCondEdges
+    EdgeExt -->|extract_entry_points| EntryOut[entry_by_graph + warnings]
   end
   subgraph graph [Graph model]
     EN[ExtractedNode]
@@ -40,6 +41,7 @@ flowchart LR
     OutNodes[dict graph_id to nodes]
     OutEdges[dict graph_id to edges]
     OutCondEdges[dict graph_id to conditional edges]
+    EntryOut[entry_by_graph and warnings]
   end
 ```
 
@@ -47,7 +49,7 @@ flowchart LR
 1. **langgraph_detector** — File-level check: does this file contain LangGraph? (`file_contains_langgraph`, `has_langgraph_import`).
 2. **stategraph_tracker** — Find every `StateGraph(...)` and track variable name and `graph_id` per instance.
 3. **node_extractor** — For each tracked graph, find `add_node(name, callable)` calls whose receiver resolves to that graph; emit `ExtractedNode(name, callable_ref, line)` per graph. Uses shared **receiver_resolution** (alias map + resolve_receiver).
-4. **edge_extractor** — For each tracked graph: (a) `add_edge(source, target)` -> `ExtractedEdge(source, target, line)`; (b) `add_conditional_edges(source, path, path_map)` with dict-literal path_map -> one `ExtractedConditionalEdge(source, condition_label, target, line)` per path_map entry. END as target supported. Same receiver resolution.
+4. **edge_extractor** — For each tracked graph: (a) `add_edge(source, target)` -> `ExtractedEdge(source, target, line)`; (b) `add_conditional_edges(source, path, path_map)` with dict-literal path_map -> one `ExtractedConditionalEdge(source, condition_label, target, line)` per path_map entry. END as target supported. (c) **Entry point:** `extract_entry_points` returns `(entry_by_graph, warnings)` from `set_entry_point(name)` or fallback from single `add_edge(START, target)`; warning when missing. Same receiver resolution.
 
 ---
 
@@ -127,7 +129,31 @@ flowchart LR
 
 ---
 
-## 5. Detection and tracking (file-level)
+## 5. Entry point
+
+How the workflow entry node is detected per graph.
+
+```mermaid
+flowchart LR
+  subgraph ingestion [Ingestion]
+    ST[stategraph_tracker]
+    EE[edge_extractor]
+    ST -->|TrackedStateGraph list| EE
+    EE -->|extract_entry_points| EntryOut[entry_by_graph and warnings]
+  end
+  EE -->|set_entry_point| EntryOut
+  EE -->|infer from add_edge START| EntryOut
+```
+
+**Data flow:**
+- **Explicit:** `set_entry_point(name)` on receiver that resolves to tracked graph -> `entry_by_graph[graph_id] = name`.
+- **Fallback:** If no set_entry_point, infer from single `add_edge(START, target)` for that graph; else None.
+- **Warnings:** When entry is None (missing or ambiguous), append a message to `warnings` list.
+- **Output:** `(dict[graph_id, str | None], list[str])`.
+
+---
+
+## 6. Detection and tracking (file-level)
 
 How we decide a file has LangGraph and how we get graph instances.
 
