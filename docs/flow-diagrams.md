@@ -46,6 +46,7 @@ flowchart LR
 ```
 
 **Steps:**
+0. **Repo scanning** — `discover_python_files(root_path)` yields the list of `.py` paths to analyze; default ignores `.venv`, `venv`, `site-packages`, `tests`, `.git`, `__pycache__` (see [§8](#8-repo-scanning-file-discovery)).
 1. **langgraph_detector** — File-level check: does this file contain LangGraph? (`file_contains_langgraph`, `has_langgraph_import`).
 2. **stategraph_tracker** — Find every `StateGraph(...)` and track variable name and `graph_id` per instance.
 3. **node_extractor** — For each tracked graph, find `add_node(name, callable)` calls whose receiver resolves to that graph; emit `ExtractedNode(name, callable_ref, line)` per graph. Uses shared **receiver_resolution** (alias map + resolve_receiver).
@@ -203,4 +204,35 @@ flowchart TB
 
 ---
 
-*Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, repo scanner, etc.).*
+## 8. Repo scanning (file discovery)
+
+Before ingestion, the set of Python files to analyze is produced by scanning the repository root with default ignore rules. Only project code is considered; virtual environments, site-packages, and tests are excluded by default.
+
+```mermaid
+flowchart LR
+  Root[root_path] --> Scanner[discover_python_files]
+  Scanner -->|default ignore_dirs| Filter[exclude .venv venv site-packages tests .git __pycache__]
+  Filter --> List[list of .py Paths sorted]
+  List -->|per file| Ingestion[Ingestion pipeline]
+```
+
+**Default ignore list** (any path containing one of these as a segment is skipped):
+
+| Directory       | Reason |
+|----------------|--------|
+| `.venv`        | Virtual environment (common layout). |
+| `venv`         | Alternate virtual environment name. |
+| `site-packages`| Installed packages; Phase-1 is project code only. |
+| `tests`        | Test code is out of scope for workflow extraction in Phase-1. |
+| `.git`         | Version control metadata. |
+| `__pycache__`  | Bytecode cache. |
+
+**API:**
+- **`discover_python_files(root_path, ignore_dirs=None)`** — Returns a **sorted** list of `Path` objects for every `.py` file under `root_path` that does not contain any ignored directory name. `root_path` can be `Path` or `str`; `ignore_dirs` is an optional sequence (if `None`, the default list above is used). Deterministic: same repo and same tool version produce the same list order.
+- **`DEFAULT_IGNORE_DIRS`** — The default tuple of ignored directory names; exportable for reference or custom logic.
+
+**Data flow:** Input is `root_path` (directory) and optional `ignore_dirs`. Output is the sorted list of paths. Each path is typically read and passed through the ingestion pipeline (detector, tracker, node/edge extraction).
+
+---
+
+*Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, etc.).*
