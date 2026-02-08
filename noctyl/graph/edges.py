@@ -12,3 +12,13 @@ class ExtractedEdge:
     source: str
     target: str
     line: int = 0
+
+
+@dataclass(frozen=True)
+class ExtractedConditionalEdge:
+    """A conditional edge extracted from add_conditional_edges path_map (one per mapping)."""
+
+    source: str
+    condition_label: str
+    target: str
+    line: int = 0

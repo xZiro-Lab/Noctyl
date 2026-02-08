@@ -26,16 +26,20 @@ flowchart LR
     Tracker -->|TrackedStateGraph list| EdgeExt
     NodeExt -->|graph_id to ExtractedNode list| OutNodes
     EdgeExt -->|graph_id to ExtractedEdge list| OutEdges
+    EdgeExt -->|graph_id to ExtractedConditionalEdge list| OutCondEdges
   end
   subgraph graph [Graph model]
     EN[ExtractedNode]
     EE[ExtractedEdge]
+    CEE[ExtractedConditionalEdge]
   end
   NodeExt -.->|uses| EN
   EdgeExt -.->|uses| EE
+  EdgeExt -.->|uses| CEE
   subgraph output [Output]
     OutNodes[dict graph_id to nodes]
     OutEdges[dict graph_id to edges]
+    OutCondEdges[dict graph_id to conditional edges]
   end
 ```
 
@@ -43,7 +47,7 @@ flowchart LR
 1. **langgraph_detector** — File-level check: does this file contain LangGraph? (`file_contains_langgraph`, `has_langgraph_import`).
 2. **stategraph_tracker** — Find every `StateGraph(...)` and track variable name and `graph_id` per instance.
 3. **node_extractor** — For each tracked graph, find `add_node(name, callable)` calls whose receiver resolves to that graph; emit `ExtractedNode(name, callable_ref, line)` per graph. Uses shared **receiver_resolution** (alias map + resolve_receiver).
-4. **edge_extractor** — For each tracked graph, find `add_edge(source, target)` calls; emit `ExtractedEdge(source, target, line)` per graph. Same receiver resolution; source/target stringified (literal, START/END, or best-effort).
+4. **edge_extractor** — For each tracked graph: (a) `add_edge(source, target)` -> `ExtractedEdge(source, target, line)`; (b) `add_conditional_edges(source, path, path_map)` with dict-literal path_map -> one `ExtractedConditionalEdge(source, condition_label, target, line)` per path_map entry. END as target supported. Same receiver resolution.
 
 ---
 
@@ -98,7 +102,32 @@ flowchart LR
 
 ---
 
-## 4. Detection and tracking (file-level)
+## 4. Conditional edges flow
+
+How add_conditional_edges(path_map) is attributed to tracked StateGraph instances.
+
+```mermaid
+flowchart LR
+  subgraph ingestion [Ingestion]
+    ST[stategraph_tracker]
+    EE[edge_extractor]
+    ST -->|TrackedStateGraph list| EE
+    EE -->|graph_id to ExtractedConditionalEdge list| OutCond[dict]
+  end
+  subgraph graph [Graph]
+    CondEdge[ExtractedConditionalEdge]
+  end
+  EE -.->|uses| CondEdge
+```
+
+**Data flow:**
+- **Input:** Same as sequential edges: `(source, file_path, list[TrackedStateGraph])`.
+- **path_map:** Only dict literals are supported; variable path_map is skipped. One `ExtractedConditionalEdge` per (key, value) in path_map: `condition_label` from key, `target` from value (END -> `"END"`).
+- **Output:** `dict[graph_id, list[ExtractedConditionalEdge]]` with `ExtractedConditionalEdge(source, condition_label, target, line)`.
+
+---
+
+## 5. Detection and tracking (file-level)
 
 How we decide a file has LangGraph and how we get graph instances.
 
@@ -117,4 +146,4 @@ flowchart TB
 
 ---
 
-*Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, conditional edges, repo scanner, etc.).*
+*Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, repo scanner, etc.).*
