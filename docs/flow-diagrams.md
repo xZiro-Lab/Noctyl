@@ -18,25 +18,32 @@ flowchart LR
   subgraph ingestion [Ingestion]
     Detector[langgraph_detector]
     Tracker[stategraph_tracker]
-    Extractor[node_extractor]
+    NodeExt[node_extractor]
+    EdgeExt[edge_extractor]
     Source --> Detector
     Detector -->|file_contains_langgraph / has_langgraph_import| Tracker
-    Tracker -->|TrackedStateGraph list| Extractor
-    Extractor -->|graph_id to ExtractedNode list| Out
+    Tracker -->|TrackedStateGraph list| NodeExt
+    Tracker -->|TrackedStateGraph list| EdgeExt
+    NodeExt -->|graph_id to ExtractedNode list| OutNodes
+    EdgeExt -->|graph_id to ExtractedEdge list| OutEdges
   end
   subgraph graph [Graph model]
     EN[ExtractedNode]
+    EE[ExtractedEdge]
   end
-  Extractor -.->|uses| EN
+  NodeExt -.->|uses| EN
+  EdgeExt -.->|uses| EE
   subgraph output [Output]
-    Out[dict graph_id to nodes]
+    OutNodes[dict graph_id to nodes]
+    OutEdges[dict graph_id to edges]
   end
 ```
 
 **Steps:**
 1. **langgraph_detector** — File-level check: does this file contain LangGraph? (`file_contains_langgraph`, `has_langgraph_import`).
 2. **stategraph_tracker** — Find every `StateGraph(...)` and track variable name and `graph_id` per instance.
-3. **node_extractor** — For each tracked graph, find `add_node(name, callable)` calls whose receiver resolves to that graph; emit `ExtractedNode(name, callable_ref, line)` per graph.
+3. **node_extractor** — For each tracked graph, find `add_node(name, callable)` calls whose receiver resolves to that graph; emit `ExtractedNode(name, callable_ref, line)` per graph. Uses shared **receiver_resolution** (alias map + resolve_receiver).
+4. **edge_extractor** — For each tracked graph, find `add_edge(source, target)` calls; emit `ExtractedEdge(source, target, line)` per graph. Same receiver resolution; source/target stringified (literal, START/END, or best-effort).
 
 ---
 
@@ -65,7 +72,33 @@ flowchart LR
 
 ---
 
-## 3. Detection and tracking (file-level)
+## 3. Edge extraction flow
+
+How add_edge calls are attributed to tracked StateGraph instances.
+
+```mermaid
+flowchart LR
+  subgraph ingestion [Ingestion]
+    ST[stategraph_tracker]
+    EE[edge_extractor]
+    ST -->|TrackedStateGraph list| EE
+    EE -->|graph_id to ExtractedEdge list| OutEdges[dict]
+  end
+  subgraph graph [Graph]
+    EEdge[ExtractedEdge]
+  end
+  EE -.->|uses| EEdge
+```
+
+**Data flow:**
+- **Input:** `(source, file_path, list[TrackedStateGraph])`.
+- **Same-file alias resolution:** Same as node extraction (shared `receiver_resolution.build_alias_map`, `resolve_receiver`).
+- **Source/target:** Literal string -> value; Name (e.g. START, END) -> id; other -> unparse/repr. Missing nodes do not prevent extraction.
+- **Output:** `dict[graph_id, list[ExtractedEdge]]` with `ExtractedEdge(source, target, line)`.
+
+---
+
+## 4. Detection and tracking (file-level)
 
 How we decide a file has LangGraph and how we get graph instances.
 
@@ -84,4 +117,4 @@ flowchart TB
 
 ---
 
-*Add new flow diagrams to this document as the pipeline grows (edges, entry/exit, compile, etc.).*
+*Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, conditional edges, repo scanner, etc.).*
