@@ -4,12 +4,16 @@ High-level integration tests: detector, tracker, node extractor, and edge extrac
 One source file is run through the full ingestion pipeline; we assert all components
 agree on graph presence, graph_id, and that nodes/edges belong to the same graph.
 Integration with graph schema: ingestion outputs -> WorkflowGraph -> deterministic JSON.
+Integration with repo scanner: discover_python_files -> per-file ingestion -> WorkflowGraph.
 """
 
 import json
+import tempfile
+from pathlib import Path
 
 from noctyl.graph import build_workflow_graph, workflow_graph_to_dict
 from noctyl.ingestion import (
+    discover_python_files,
     extract_add_conditional_edges,
     extract_add_edge_calls,
     extract_add_node_calls,
@@ -277,3 +281,61 @@ graph.add_conditional_edges("a", router, {"go": "b", "stop": END})
     by_label = {e.condition_label: e for e in cond_edges}
     assert by_label["go"].source == "a" and by_label["go"].target == "b"
     assert by_label["stop"].source == "a" and by_label["stop"].target == "END"
+
+
+def test_repo_scanner_to_ingestion_to_workflow_graph():
+    """
+    Full integration: discover_python_files on a temp tree -> read each file ->
+    run ingestion (track, nodes, edges, conditional_edges, entry_point) ->
+    build WorkflowGraph and serialize to JSON.
+    Asserts default ignores exclude tests/; only discovered files are analyzed;
+    one workflow file yields one graph with expected structure.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_conditional_edges("b", router, {"next": "a", "done": END})
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+        (root / "tests").mkdir()
+        (root / "tests" / "test_workflow.py").write_text(
+            "from langgraph.graph import StateGraph\nx = StateGraph(dict)\n"
+        )
+
+        paths = discover_python_files(root)
+        rel_paths = [p.relative_to(root) for p in paths]
+        assert any(p.name == "workflow.py" and "src" in p.parts for p in rel_paths), "src/workflow.py should be discovered"
+        assert all("tests" not in p.parts for p in rel_paths), "tests/ should be ignored by default"
+
+        all_graphs = []
+        for path in paths:
+            source = path.read_text()
+            file_path = str(path.relative_to(root))
+            if not file_contains_langgraph(source, file_path):
+                continue
+            tracked = track_stategraph_instances(source, file_path)
+            for t in tracked:
+                nodes = extract_add_node_calls(source, file_path, tracked).get(t.graph_id, [])
+                edges = extract_add_edge_calls(source, file_path, tracked).get(t.graph_id, [])
+                cond = extract_add_conditional_edges(source, file_path, tracked).get(t.graph_id, [])
+                entry_by_graph, _ = extract_entry_points(source, file_path, tracked)
+                entry_point = entry_by_graph.get(t.graph_id)
+                wg = build_workflow_graph(t.graph_id, nodes, edges, cond, entry_point)
+                all_graphs.append(workflow_graph_to_dict(wg))
+
+        assert len(all_graphs) >= 1
+        d = all_graphs[0]
+        assert d["entry_point"] == "a"
+        assert len(d["nodes"]) == 2
+        assert len(d["edges"]) == 2
+        assert len(d["conditional_edges"]) == 2
+        assert d["schema_version"] == "1.0"
+        json_out = json.dumps(d, sort_keys=True)
+        assert "a" in json_out and "b" in json_out
