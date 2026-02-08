@@ -4,7 +4,7 @@
   "title": "WorkflowGraph",
   "description": "Noctyl Phase-1 workflow graph: nodes, directed edges, entry point.",
   "type": "object",
-  "required": ["schema_version", "graph_id", "entry_point", "nodes", "edges", "conditional_edges"],
+  "required": ["schema_version", "graph_id", "entry_point", "terminal_nodes", "nodes", "edges", "conditional_edges"],
   "properties": {
     "schema_version": {
       "type": "string",
@@ -17,6 +17,11 @@
     "entry_point": {
       "oneOf": [{ "type": "string" }, { "type": "null" }],
       "description": "Entry node name, or null if missing/unknown."
+    },
+    "terminal_nodes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Node names that have an outgoing edge or conditional edge to END."
     },
     "nodes": {
       "type": "array",
