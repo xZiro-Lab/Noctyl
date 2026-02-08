@@ -50,10 +50,41 @@ flowchart LR
 2. **stategraph_tracker** — Find every `StateGraph(...)` and track variable name and `graph_id` per instance.
 3. **node_extractor** — For each tracked graph, find `add_node(name, callable)` calls whose receiver resolves to that graph; emit `ExtractedNode(name, callable_ref, line)` per graph. Uses shared **receiver_resolution** (alias map + resolve_receiver).
 4. **edge_extractor** — For each tracked graph: (a) `add_edge(source, target)` -> `ExtractedEdge(source, target, line)`; (b) `add_conditional_edges(source, path, path_map)` with dict-literal path_map -> one `ExtractedConditionalEdge(source, condition_label, target, line)` per path_map entry. END as target supported. (c) **Entry point:** `extract_entry_points` returns `(entry_by_graph, warnings)` from `set_entry_point(name)` or fallback from single `add_edge(START, target)`; warning when missing. Same receiver resolution.
+5. **Graph schema:** Ingestion outputs (nodes, edges, conditional_edges, entry_point per graph_id) are assembled into a **WorkflowGraph** via `build_workflow_graph`; **workflow_graph_to_dict** produces a deterministic JSON-serializable dict; JSON Schema in `noctyl/graph/schema.json` describes the serialized shape.
 
 ---
 
-## 2. Node extraction flow
+## 2. Graph schema and serialization
+
+Ingestion outputs per graph_id are aggregated into WorkflowGraph and serialized to JSON.
+
+```mermaid
+flowchart LR
+  subgraph ingestion [Ingestion]
+    Nodes[nodes by graph_id]
+    Edges[edges by graph_id]
+    CondEdges[conditional_edges by graph_id]
+    Entry[entry_by_graph]
+  end
+  subgraph graph [Graph]
+    WG[WorkflowGraph]
+    WG -->|workflow_graph_to_dict| Dict[JSON-serializable dict]
+    Dict -->|json.dumps sort_keys| JSON[JSON string]
+  end
+  Nodes --> WG
+  Edges --> WG
+  CondEdges --> WG
+  Entry --> WG
+```
+
+**Data flow:**
+- **build_workflow_graph(graph_id, nodes, edges, conditional_edges, entry_point)** builds a WorkflowGraph (schema_version, graph_id, nodes, edges, conditional_edges, entry_point).
+- **workflow_graph_to_dict(g)** returns a dict with deterministic list ordering (nodes by name/line, edges by source/target/line, conditional_edges by source/condition_label/target/line).
+- **JSON Schema:** `noctyl/graph/schema.json` defines the serialized document shape (nodes, directed edges, entry_point).
+
+---
+
+## 3. Node extraction flow
 
 How add_node calls are attributed to tracked StateGraph instances.
 
@@ -78,7 +109,7 @@ flowchart LR
 
 ---
 
-## 3. Edge extraction flow
+## 4. Edge extraction flow
 
 How add_edge calls are attributed to tracked StateGraph instances.
 
@@ -104,7 +135,7 @@ flowchart LR
 
 ---
 
-## 4. Conditional edges flow
+## 5. Conditional edges flow
 
 How add_conditional_edges(path_map) is attributed to tracked StateGraph instances.
 
@@ -129,7 +160,7 @@ flowchart LR
 
 ---
 
-## 5. Entry point
+## 6. Entry point
 
 How the workflow entry node is detected per graph.
 
@@ -153,7 +184,7 @@ flowchart LR
 
 ---
 
-## 6. Detection and tracking (file-level)
+## 7. Detection and tracking (file-level)
 
 How we decide a file has LangGraph and how we get graph instances.
 

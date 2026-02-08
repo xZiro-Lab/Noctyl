@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noctyl.ai/schemas/workflow-graph-v1.json",
+  "title": "WorkflowGraph",
+  "description": "Noctyl Phase-1 workflow graph: nodes, directed edges, entry point.",
+  "type": "object",
+  "required": ["schema_version", "graph_id", "entry_point", "nodes", "edges", "conditional_edges"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version (e.g. 1.0)."
+    },
+    "graph_id": {
+      "type": "string",
+      "description": "Stable identifier for this graph (e.g. file_path:ordinal)."
+    },
+    "entry_point": {
+      "oneOf": [{ "type": "string" }, { "type": "null" }],
+      "description": "Entry node name, or null if missing/unknown."
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "callable_ref", "line"],
+        "properties": {
+          "name": { "type": "string" },
+          "callable_ref": { "type": "string" },
+          "line": { "type": "integer" }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Directed sequential edges.",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "line"],
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "line": { "type": "integer" }
+        }
+      }
+    },
+    "conditional_edges": {
+      "type": "array",
+      "description": "Directed conditional edges (one per path_map entry).",
+      "items": {
+        "type": "object",
+        "required": ["source", "condition_label", "target", "line"],
+        "properties": {
+          "source": { "type": "string" },
+          "condition_label": { "type": "string" },
+          "target": { "type": "string" },
+          "line": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
