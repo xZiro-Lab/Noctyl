@@ -10,6 +10,7 @@ from noctyl.ingestion.edge_extractor import (
     extract_entry_points,
 )
 from noctyl.ingestion.node_extractor import extract_add_node_calls
+from noctyl.ingestion.pipeline import run_pipeline_on_directory
 from noctyl.ingestion.repo_scanner import (
     DEFAULT_IGNORE_DIRS,
     discover_python_files,
@@ -23,6 +24,7 @@ __all__ = [
     "DEFAULT_IGNORE_DIRS",
     "TrackedStateGraph",
     "discover_python_files",
+    "run_pipeline_on_directory",
     "extract_add_conditional_edges",
     "extract_add_edge_calls",
     "extract_add_node_calls",
