@@ -137,6 +137,8 @@ graph.add_conditional_edges("b", router, {"next": "a", "done": END})
     assert d["schema_version"] == "1.0"
     assert d["graph_id"] == graph_id
     assert d["entry_point"] == "a"
+    assert "terminal_nodes" in d
+    assert "b" in d["terminal_nodes"], "b has conditional edge to END"
     assert len(d["nodes"]) == 2
     assert len(d["edges"]) == 2
     assert len(d["conditional_edges"]) == 2
@@ -150,6 +152,7 @@ graph.add_conditional_edges("b", router, {"next": "a", "done": END})
 
     parsed = json.loads(json1)
     assert parsed["entry_point"] == "a"
+    assert "b" in parsed["terminal_nodes"]
     assert len(parsed["nodes"]) == 2
     assert len(parsed["conditional_edges"]) == 2
 
@@ -334,6 +337,7 @@ graph.add_conditional_edges("b", router, {"next": "a", "done": END})
         assert len(all_graphs) >= 1
         d = all_graphs[0]
         assert d["entry_point"] == "a"
+        assert "terminal_nodes" in d and "b" in d["terminal_nodes"]
         assert len(d["nodes"]) == 2
         assert len(d["edges"]) == 2
         assert len(d["conditional_edges"]) == 2
@@ -363,6 +367,7 @@ graph.add_edge(START, "a")
 
         assert len(results) >= 1
         assert results[0]["entry_point"] == "a"
+        assert "terminal_nodes" in results[0]
         assert any("could not read" in w for w in warnings)
 
 

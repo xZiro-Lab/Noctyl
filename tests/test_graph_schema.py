@@ -13,18 +13,20 @@ from noctyl.graph import (
 
 
 def test_workflow_graph_to_dict_structure():
-    """Serialized dict has schema_version, graph_id, entry_point, nodes, edges, conditional_edges."""
+    """Serialized dict has schema_version, graph_id, entry_point, terminal_nodes, nodes, edges, conditional_edges."""
     g = WorkflowGraph(
         graph_id="file.py:0",
         nodes=(ExtractedNode("a", "f", 10),),
         edges=(ExtractedEdge("a", "b", 11),),
         conditional_edges=(),
         entry_point="a",
+        terminal_nodes=(),
     )
     d = workflow_graph_to_dict(g)
     assert d["schema_version"] == "1.0"
     assert d["graph_id"] == "file.py:0"
     assert d["entry_point"] == "a"
+    assert "terminal_nodes" in d and isinstance(d["terminal_nodes"], list)
     assert "nodes" in d and isinstance(d["nodes"], list)
     assert "edges" in d and isinstance(d["edges"], list)
     assert "conditional_edges" in d and isinstance(d["conditional_edges"], list)
@@ -52,6 +54,7 @@ def test_deterministic_serialization():
         edges=tuple(edges),
         conditional_edges=tuple(cond_edges),
         entry_point="a",
+        terminal_nodes=(),
     )
     d1 = workflow_graph_to_dict(g)
     d2 = workflow_graph_to_dict(g)
@@ -73,6 +76,7 @@ def test_nodes_sorted_by_name_then_line():
         edges=(),
         conditional_edges=(),
         entry_point=None,
+        terminal_nodes=(),
     )
     d = workflow_graph_to_dict(g)
     names = [n["name"] for n in d["nodes"]]
@@ -91,6 +95,7 @@ def test_edges_sorted_by_source_target_line():
         ),
         conditional_edges=(),
         entry_point=None,
+        terminal_nodes=(),
     )
     d = workflow_graph_to_dict(g)
     assert d["edges"][0]["source"] == "a"
@@ -108,6 +113,7 @@ def test_conditional_edges_sorted():
             ExtractedConditionalEdge("n", "x", "a", 1),
         ),
         entry_point=None,
+        terminal_nodes=(),
     )
     d = workflow_graph_to_dict(g)
     labels = [e["condition_label"] for e in d["conditional_edges"]]
@@ -125,6 +131,7 @@ def test_build_workflow_graph():
     assert len(g.nodes) == 1 and g.nodes[0].name == "a"
     assert len(g.edges) == 1 and g.edges[0].target == "b"
     assert len(g.conditional_edges) == 1 and g.conditional_edges[0].condition_label == "ok"
+    assert g.terminal_nodes == ()
 
 
 def test_entry_point_null_serialized():
@@ -135,6 +142,7 @@ def test_entry_point_null_serialized():
         edges=(),
         conditional_edges=(),
         entry_point=None,
+        terminal_nodes=(),
     )
     d = workflow_graph_to_dict(g)
     assert d["entry_point"] is None
@@ -150,10 +158,41 @@ def test_empty_graph_roundtrip():
         edges=(),
         conditional_edges=(),
         entry_point=None,
+        terminal_nodes=(),
     )
     d = workflow_graph_to_dict(g)
     assert d["nodes"] == []
     assert d["edges"] == []
     assert d["conditional_edges"] == []
+    assert d["terminal_nodes"] == []
     parsed = json.loads(json.dumps(d, sort_keys=True))
     assert parsed == d
+
+
+def test_terminal_nodes_from_edge_to_end():
+    """Node with add_edge(node, END) appears in terminal_nodes."""
+    nodes = [ExtractedNode("a", "f", 1), ExtractedNode("b", "g", 2)]
+    edges = [ExtractedEdge("a", "b", 3), ExtractedEdge("b", "END", 4)]
+    g = build_workflow_graph("id:0", nodes, edges, [], "a")
+    assert g.terminal_nodes == ("b",)
+    d = workflow_graph_to_dict(g)
+    assert d["terminal_nodes"] == ["b"]
+
+
+def test_terminal_nodes_from_conditional_edge_to_end():
+    """Node with add_conditional_edges(..., {label: END}) appears in terminal_nodes."""
+    nodes = [ExtractedNode("n", "f", 1)]
+    edges = []
+    cond = [ExtractedConditionalEdge("n", "done", "END", 2)]
+    g = build_workflow_graph("id:0", nodes, edges, cond, "n")
+    assert g.terminal_nodes == ("n",)
+    assert workflow_graph_to_dict(g)["terminal_nodes"] == ["n"]
+
+
+def test_terminal_nodes_empty_when_no_end():
+    """Graph with no edges to END has empty terminal_nodes."""
+    nodes = [ExtractedNode("a", "f", 1)]
+    edges = [ExtractedEdge("a", "b", 2)]
+    g = build_workflow_graph("id:0", nodes, edges, [], "a")
+    assert g.terminal_nodes == ()
+    assert workflow_graph_to_dict(g)["terminal_nodes"] == []
