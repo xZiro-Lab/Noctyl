@@ -1,0 +1,10 @@
+flowchart TB
+  Start([START])
+  EndNode([END])
+  a["a"]
+  b["b"]
+  Start --> a
+  b --> EndNode
+  a -->|done| EndNode
+  a -->|loop| a
+  a -->|next| b

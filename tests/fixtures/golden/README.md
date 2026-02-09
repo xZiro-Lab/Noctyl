@@ -2,6 +2,8 @@
 
 Canonical examples used to validate graph extraction. Each file is a minimal, self-contained LangGraph workflow. Tests in `tests/test_golden.py` run `run_pipeline_on_directory` on this directory and assert the extracted graph structure.
 
+**Generated Mermaid diagrams:** Run `pytest tests/test_golden_mermaid.py -v` to generate `generated/*.mmd` (one per extracted graph). Open any `.mmd` file in [Mermaid Live Editor](https://mermaid.live) to view the graph of agents.
+
 ## Required cases (issue)
 
 - **linear_workflow.py** — Linear: START -> A -> B -> END.
