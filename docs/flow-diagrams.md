@@ -276,4 +276,30 @@ flowchart TB
 
 ---
 
+## 10. Generate graph of agents (Mermaid)
+
+From an extracted workflow dict you can produce a **Mermaid flowchart** (graph of agents and edges) for visualization or export.
+
+**How to generate the graph:**
+1. Get a workflow dict: run the pipeline (e.g. `run_pipeline_on_directory(root)`), then use each result dict; or build a `WorkflowGraph` and call `workflow_graph_to_dict(g)`.
+2. Call `workflow_dict_to_mermaid(d)` from `noctyl.graph`. It returns a Mermaid string (flowchart TB) with:
+   - **Nodes:** START and END (as distinct nodes), plus each workflow node (agent/step) by name.
+   - **Edges:** Sequential edges (`source --> target`) and conditional edges (`source -->|condition_label| target`).
+3. Render the string in any Mermaid-capable viewer (e.g. GitHub, Mermaid Live Editor) or write to a `.mmd` file.
+
+**Example (Python):**
+```python
+from noctyl.graph import workflow_graph_to_dict, workflow_dict_to_mermaid
+from noctyl.ingestion import run_pipeline_on_directory
+
+results, _ = run_pipeline_on_directory("path/to/repo")
+for d in results:
+    mermaid = workflow_dict_to_mermaid(d)
+    print(mermaid)  # or open("graph.mmd", "w").write(mermaid)
+```
+
+Entry and terminal nodes appear via edges: START → entry_point, and terminal nodes → END. Conditional edge labels are shown on the arrows.
+
+---
+
 *Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, etc.).*
