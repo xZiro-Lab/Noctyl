@@ -16,7 +16,7 @@ CycleType = Literal[
 OriginType = Literal[
     "local_function", "imported_function", "class_method", "lambda", "unknown"
 ]
-StateInteractionType = Literal["pure", "read_only", "mutates_state"]
+StateInteractionType = Literal["pure", "read_only", "mutates_state", "unknown"]
 RoleType = Literal["llm_like", "tool_like", "control_node", "unknown"]
 
 ENRICHED_SCHEMA_VERSION = "2.0"
