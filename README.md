@@ -81,7 +81,7 @@ Noctyl runs **before execution**, not during or after.
 ### One-line installer (recommended)
 
 ```bash
-curl -fsSL https://noctyl.ai/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xZiro-Lab/Noctyl/main/install.sh | bash
 ```
 
 ---
