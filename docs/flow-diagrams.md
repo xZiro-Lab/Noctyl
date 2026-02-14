@@ -302,9 +302,9 @@ Entry and terminal nodes appear via edges: START → entry_point, and terminal n
 
 ---
 
-## 11. Phase 2: ExecutionModel and enriched output
+## 11. Phase 2: GraphAnalyzer, ExecutionModel and enriched output
 
-Phase 2 introduces an **ExecutionModel** as the canonical internal representation: it holds the Phase 1 **WorkflowGraph** plus shape, cycles, structural metrics, node annotations, and structural risks. **execution_model_to_dict(model)** produces a deterministic JSON-serializable dict with `schema_version` 2.0 and `enriched: true`, including the base graph (from `workflow_graph_to_dict(model.graph)`) and enriched fields (cycles, shape, metrics, node_annotations, risks). No token or cost fields; analysis is static and LangGraph-only.
+Phase 2 adds the **GraphAnalyzer** in `noctyl/analysis`: it takes a **WorkflowGraph** and optional `source` and `file_path`, runs control-flow (SCC, cycles, shape), metrics, node annotation, and structural risk, and returns an **ExecutionModel**. The ExecutionModel holds the Phase 1 graph plus `shape`, `cycles`, `metrics`, `node_annotations`, and `risks`. **execution_model_to_dict(model)** produces a deterministic JSON-serializable dict with `schema_version` 2.0 and `enriched: true`, including the base graph (from `workflow_graph_to_dict(model.graph)`) and enriched fields. No token or cost fields; analysis is static and LangGraph-only.
 
 ```mermaid
 flowchart LR
@@ -313,14 +313,45 @@ flowchart LR
     WG -->|workflow_graph_to_dict| BaseDict[base dict]
   end
   subgraph phase2 [Phase 2]
+    Analyzer[GraphAnalyzer.analyze]
     EM[ExecutionModel]
+    Analyzer -->|returns| EM
     EM -->|execution_model_to_dict| EnrichedDict[enriched dict schema_version 2.0]
     BaseDict -.->|merged into| EnrichedDict
   end
-  WG -->|graph + shape + cycles + metrics + annotations + risks| EM
+  WG -->|wg, source, file_path| Analyzer
 ```
 
-**ExecutionModel fields:** `graph` (WorkflowGraph), `entry_point`, `terminal_nodes`, `shape` (linear | branching | cyclic | disconnected | invalid), `cycles` (DetectedCycle), `metrics` (StructuralMetrics), `node_annotations` (NodeAnnotation), `risks` (StructuralRisk). When Phase 2 pipeline steps are added (e.g. GraphAnalyzer in Task 2), extend this diagram to show analyzer → ExecutionModel. Keep this document updated whenever new pipeline steps touch the graph or enriched output.
+**API:** `analyze(workflow_graph, *, source=None, file_path=None) -> ExecutionModel` (or `GraphAnalyzer().analyze(...)`). When `source` (and optionally `file_path`) is provided, node annotations use the source for origin, state interaction, and role heuristics; otherwise annotations are unknown.
+
+**ExecutionModel fields:** `graph` (WorkflowGraph), `entry_point`, `terminal_nodes`, `shape` (linear | branching | cyclic | disconnected | invalid), `cycles` (DetectedCycle), `metrics` (StructuralMetrics), `node_annotations` (NodeAnnotation), `risks` (StructuralRisk).
+
+---
+
+## 12. Pipeline with optional Phase 2 enriched output
+
+When the pipeline is run with Phase 2 integration, after building each WorkflowGraph the runner can call the analyzer and serialize the ExecutionModel for enriched output. Phase-1-only callers continue to receive base dicts (e.g. from `workflow_graph_to_dict`); enriched callers receive schema 2.0 dicts with cycles, shape, metrics, node_annotations, and risks.
+
+```mermaid
+flowchart TB
+  Root[root_path] --> Discover[discover_python_files]
+  Discover --> Paths[list of .py paths]
+  Paths --> Loop[for each path]
+  Loop --> Read[read_text]
+  Read --> Ingest[track + extract nodes edges entry]
+  Ingest --> Build[build_workflow_graph]
+  Build --> WG[WorkflowGraph]
+  WG --> Choice{output mode}
+  Choice -->|Phase 1 only| Base[workflow_graph_to_dict]
+  Choice -->|Phase 2 enriched| Analyze[analyze wg source file_path]
+  Analyze --> EM[ExecutionModel]
+  EM --> Enriched[execution_model_to_dict]
+  Base --> Append[append to results]
+  Enriched --> Append
+  Append --> Loop
+```
+
+**Backward compatibility:** Existing pipeline entry points can remain Phase-1-only (list of base dicts). A separate entry point or an optional flag can enable Phase 2: for each graph, call `analyze(wg, source=source, file_path=file_path)` then `execution_model_to_dict(model)` and return those dicts (or mix as required). See [phase2_task3_pipeline_integration.md](../.github/ISSUE_TEMPLATE/phase2_task3_pipeline_integration.md).
 
 ---
 
