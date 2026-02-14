@@ -384,3 +384,94 @@ def test_run_pipeline_on_directory_syntax_error_only_does_not_crash():
 
         assert results == []
         # May have warnings or not; must not raise
+
+
+def test_run_pipeline_on_directory_enriched_contains_phase2_fields():
+    """
+    Enriched mode returns schema 2.0 dicts with Phase-2 fields while preserving base graph fields.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_edge("b", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert warnings == []
+        assert len(results) >= 1
+        d = results[0]
+        assert d["schema_version"] == "2.0"
+        assert d["enriched"] is True
+        assert "shape" in d and "cycles" in d and "metrics" in d
+        assert "node_annotations" in d and "risks" in d
+        assert "nodes" in d and "edges" in d and "entry_point" in d and "terminal_nodes" in d
+        assert "token" not in " ".join(k.lower() for k in d.keys())
+        assert "cost" not in " ".join(k.lower() for k in d.keys())
+
+
+def test_run_pipeline_on_directory_enriched_is_deterministic():
+    """
+    Same repo + enriched mode should produce identical JSON output across runs.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_conditional_edges("b", router, {"loop": "a", "done": END})
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+
+        r1, w1 = run_pipeline_on_directory(root, enriched=True)
+        r2, w2 = run_pipeline_on_directory(root, enriched=True)
+        assert w1 == w2
+        assert json.dumps(r1, sort_keys=True) == json.dumps(r2, sort_keys=True)
+
+
+def test_run_pipeline_on_directory_enriched_unreadable_file_does_not_crash():
+    """
+    Enriched mode also handles unreadable files safely and still returns warnings.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+        (root / "src" / "bad.py").write_bytes(b"\xff\xfe invalid utf-8")
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) >= 1
+        assert results[0]["schema_version"] == "2.0"
+        assert results[0]["enriched"] is True
+        assert any("could not read" in w for w in warnings)
+
+
+def test_run_pipeline_on_directory_enriched_syntax_error_only_does_not_crash():
+    """
+    Enriched mode on a directory with only syntax-error files returns empty results.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "broken.py").write_text("from langgraph.graph import StateGraph\nx = (  # unclosed")
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert results == []
+        assert isinstance(warnings, list)

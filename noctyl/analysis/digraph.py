@@ -60,8 +60,12 @@ def build_digraph(wg: WorkflowGraph) -> DirectedGraph:
     node_names = {n.name for n in wg.nodes}
 
     for e in wg.edges:
+        if e.source == "START":
+            continue
         dg.add_edge(e.source, e.target, conditional=False)
     for e in wg.conditional_edges:
+        if e.source == "START":
+            continue
         dg.add_edge(e.source, e.target, conditional=True)
 
     if wg.entry_point is not None:

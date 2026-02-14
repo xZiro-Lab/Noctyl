@@ -236,7 +236,7 @@ flowchart LR
 
 ---
 
-## 9. Error handling (Phase-1)
+## 9. Error handling (pipeline safety)
 
 **Strategy:** Best-effort. Invalid or unsupported code: warn and continue; skip and report; emit partial when possible. No fail-fast (see [phase1-scope.md](phase1-scope.md) §8).
 
@@ -252,8 +252,12 @@ flowchart TB
   Read -->|success| HasLangGraph[file_contains_langgraph]
   HasLangGraph -->|False| Loop
   HasLangGraph -->|True| Ingest[track + extract nodes edges entry]
-  Ingest --> Build[build_workflow_graph + workflow_graph_to_dict]
-  Build --> Append[append to results]
+  Ingest --> Build[build_workflow_graph]
+  Build --> Choice{enriched flag}
+  Choice -->|False| Base[workflow_graph_to_dict]
+  Choice -->|True| Analyze[analyze + execution_model_to_dict]
+  Base --> Append[append to results]
+  Analyze --> Append
   Append --> Loop
   Loop --> Done[return results and warnings]
 ```
@@ -272,7 +276,7 @@ flowchart TB
 - **`run_pipeline_on_directory`** (when reading files) appends:
   - `"{path}: could not read"` on OSError or UnicodeDecodeError for that file.
 
-**Tool does not crash:** `run_pipeline_on_directory(root_path)` runs discover → read each file → ingest → build WorkflowGraph → to_dict; it catches file-read errors and skips with a warning, so it never raises for invalid or unreadable files.
+**Tool does not crash:** `run_pipeline_on_directory(root_path, enriched=False)` and `run_pipeline_on_directory(root_path, enriched=True)` both run discover → read each file → ingest → build WorkflowGraph → serialize (base or enriched). File-read errors are caught and skipped with warnings, so the pipeline does not raise for invalid or unreadable files.
 
 ---
 
@@ -351,7 +355,7 @@ flowchart TB
   Append --> Loop
 ```
 
-**Backward compatibility:** Existing pipeline entry points can remain Phase-1-only (list of base dicts). A separate entry point or an optional flag can enable Phase 2: for each graph, call `analyze(wg, source=source, file_path=file_path)` then `execution_model_to_dict(model)` and return those dicts (or mix as required). See [phase2_task3_pipeline_integration.md](../.github/ISSUE_TEMPLATE/phase2_task3_pipeline_integration.md).
+**API:** `run_pipeline_on_directory(root_path, enriched=False)` (default). When `enriched` is False, each result dict is from `workflow_graph_to_dict` (Phase-1). When `enriched` is True, the pipeline uses the Phase 2 path: for each graph it calls `analyze(wg, source=source, file_path=file_path)` then `execution_model_to_dict(model)` and returns those enriched dicts. Backward compatibility: existing callers that omit `enriched` get Phase-1-only output. See [phase2_task3_pipeline_integration.md](../.github/ISSUE_TEMPLATE/phase2_task3_pipeline_integration.md).
 
 ---
 

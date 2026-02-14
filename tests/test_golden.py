@@ -120,3 +120,33 @@ def test_golden_multiple_conditional_nodes():
     cond_sources = {e["source"] for e in g["conditional_edges"]}
     assert cond_sources == {"a", "b"}
     assert set(g["terminal_nodes"]) == {"a", "b"}
+
+
+def test_golden_default_returns_base_dicts():
+    """Default run_pipeline_on_directory returns Phase-1 dicts (schema 1.0, no enriched)."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR)
+    assert len(results) >= 1
+    for d in results:
+        assert d.get("schema_version") == "1.0"
+        assert "enriched" not in d
+
+
+def test_golden_enriched_returns_schema_v2():
+    """run_pipeline_on_directory(..., enriched=True) returns Phase-2 dicts with enriched fields."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    assert len(results) >= 1
+    for d in results:
+        assert d.get("schema_version") == "2.0"
+        assert d.get("enriched") is True
+        assert "shape" in d and "cycles" in d and "metrics" in d
+        assert "node_annotations" in d and "risks" in d
+        assert "token" not in " ".join(k.lower() for k in d.keys())
+        assert "cost" not in " ".join(k.lower() for k in d.keys())
+        # Base graph fields still present
+        assert "nodes" in d and "edges" in d and "entry_point" in d and "terminal_nodes" in d
+    # Linear workflow fixture: expect at least one graph with shape linear
+    linear = _find_graph(results, lambda d: _node_names(d) == {"a", "b"} and not d["conditional_edges"] and d["entry_point"] == "a")
+    if linear is not None:
+        assert linear["shape"] == "linear"
+        assert linear["entry_point"] == "a"
+        assert linear["terminal_nodes"] == ["b"]
