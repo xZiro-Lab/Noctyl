@@ -2,7 +2,7 @@
 
 This document collects flow and architecture diagrams for the Noctyl pipeline. All diagrams use Mermaid and can be rendered on GitHub or in any Mermaid-capable viewer.
 
-**Maintenance:** Keep this document in sync with the codebase. When adding or changing pipeline steps (e.g. edge extraction, entry point, compile, repo scanner), add or update the corresponding diagram and section here.
+**Maintenance:** Keep this document in sync with the codebase. When adding or changing pipeline steps (e.g. edge extraction, entry point, compile, repo scanner, Phase 2 GraphAnalyzer), add or update the corresponding diagram and section here.
 
 ---
 
@@ -299,6 +299,28 @@ for d in results:
 ```
 
 Entry and terminal nodes appear via edges: START → entry_point, and terminal nodes → END. Conditional edge labels are shown on the arrows.
+
+---
+
+## 11. Phase 2: ExecutionModel and enriched output
+
+Phase 2 introduces an **ExecutionModel** as the canonical internal representation: it holds the Phase 1 **WorkflowGraph** plus shape, cycles, structural metrics, node annotations, and structural risks. **execution_model_to_dict(model)** produces a deterministic JSON-serializable dict with `schema_version` 2.0 and `enriched: true`, including the base graph (from `workflow_graph_to_dict(model.graph)`) and enriched fields (cycles, shape, metrics, node_annotations, risks). No token or cost fields; analysis is static and LangGraph-only.
+
+```mermaid
+flowchart LR
+  subgraph phase1 [Phase 1]
+    WG[WorkflowGraph]
+    WG -->|workflow_graph_to_dict| BaseDict[base dict]
+  end
+  subgraph phase2 [Phase 2]
+    EM[ExecutionModel]
+    EM -->|execution_model_to_dict| EnrichedDict[enriched dict schema_version 2.0]
+    BaseDict -.->|merged into| EnrichedDict
+  end
+  WG -->|graph + shape + cycles + metrics + annotations + risks| EM
+```
+
+**ExecutionModel fields:** `graph` (WorkflowGraph), `entry_point`, `terminal_nodes`, `shape` (linear | branching | cyclic | disconnected | invalid), `cycles` (DetectedCycle), `metrics` (StructuralMetrics), `node_annotations` (NodeAnnotation), `risks` (StructuralRisk). When Phase 2 pipeline steps are added (e.g. GraphAnalyzer in Task 2), extend this diagram to show analyzer → ExecutionModel. Keep this document updated whenever new pipeline steps touch the graph or enriched output.
 
 ---
 
