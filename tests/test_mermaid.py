@@ -73,3 +73,87 @@ def test_workflow_dict_to_mermaid_from_golden_style():
     assert "agent" in m and "tool" in m
     assert "Start -->" in m
     assert "--> EndNode" in m
+
+
+def test_workflow_dict_to_mermaid_special_chars_in_node_name():
+    """Node name with spaces/special chars gets quoted in Mermaid."""
+    d = {
+        "nodes": [{"name": "my node", "callable_ref": "f", "line": 1}],
+        "edges": [{"source": "START", "target": "my node", "line": 2}],
+        "conditional_edges": [],
+    }
+    m = workflow_dict_to_mermaid(d)
+    assert '"my node"' in m
+
+
+def test_workflow_dict_to_mermaid_underscore_node_name():
+    """Node with underscores is not quoted."""
+    d = {
+        "nodes": [{"name": "my_node", "callable_ref": "f", "line": 1}],
+        "edges": [{"source": "START", "target": "my_node", "line": 2}],
+        "conditional_edges": [],
+    }
+    m = workflow_dict_to_mermaid(d)
+    assert "my_node" in m
+    # Should NOT be quoted since it's alphanumeric + underscore
+    lines = m.split("\n")
+    node_line = [l for l in lines if "my_node" in l and '["' in l][0]
+    assert node_line.strip().startswith("my_node[")
+
+
+def test_workflow_dict_to_mermaid_enriched_dict_accepted():
+    """Enriched Phase-2 dict also produces valid Mermaid (extra keys ignored)."""
+    d = {
+        "schema_version": "2.0",
+        "enriched": True,
+        "shape": "linear",
+        "graph_id": "x:0",
+        "entry_point": "a",
+        "terminal_nodes": ["a"],
+        "nodes": [{"name": "a", "callable_ref": "f", "line": 1}],
+        "edges": [
+            {"source": "START", "target": "a", "line": 2},
+            {"source": "a", "target": "END", "line": 3},
+        ],
+        "conditional_edges": [],
+        "cycles": [],
+        "metrics": {},
+        "node_annotations": [],
+        "risks": {},
+    }
+    m = workflow_dict_to_mermaid(d)
+    assert "flowchart TB" in m
+    assert "Start -->" in m
+    assert "--> EndNode" in m
+    assert '["a"]' in m or "a[" in m
+
+
+def test_workflow_dict_to_mermaid_conditional_label_special_chars():
+    """Conditional label with special chars gets quoted."""
+    d = {
+        "nodes": [{"name": "a", "callable_ref": "f", "line": 1}],
+        "edges": [],
+        "conditional_edges": [
+            {"source": "a", "condition_label": "go next!", "target": "END", "line": 2}
+        ],
+    }
+    m = workflow_dict_to_mermaid(d)
+    assert '"go next!"' in m
+
+
+def test_workflow_dict_to_mermaid_multiple_conditional_labels():
+    """Multiple conditional edges from same source produce separate labeled arrows."""
+    d = {
+        "nodes": [
+            {"name": "a", "callable_ref": "f", "line": 1},
+            {"name": "b", "callable_ref": "g", "line": 2},
+        ],
+        "edges": [],
+        "conditional_edges": [
+            {"source": "a", "condition_label": "yes", "target": "b", "line": 3},
+            {"source": "a", "condition_label": "no", "target": "END", "line": 4},
+        ],
+    }
+    m = workflow_dict_to_mermaid(d)
+    assert "-->|yes|" in m
+    assert "-->|no|" in m

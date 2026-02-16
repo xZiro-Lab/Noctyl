@@ -384,3 +384,465 @@ def test_run_pipeline_on_directory_syntax_error_only_does_not_crash():
 
         assert results == []
         # May have warnings or not; must not raise
+
+
+def test_run_pipeline_on_directory_enriched_contains_phase2_fields():
+    """
+    Enriched mode returns schema 2.0 dicts with Phase-2 fields while preserving base graph fields.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_edge("b", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert warnings == []
+        assert len(results) >= 1
+        d = results[0]
+        assert d["schema_version"] == "2.0"
+        assert d["enriched"] is True
+        assert "shape" in d and "cycles" in d and "metrics" in d
+        assert "node_annotations" in d and "risks" in d
+        assert "nodes" in d and "edges" in d and "entry_point" in d and "terminal_nodes" in d
+        assert "token" not in " ".join(k.lower() for k in d.keys())
+        assert "cost" not in " ".join(k.lower() for k in d.keys())
+
+
+def test_run_pipeline_on_directory_enriched_is_deterministic():
+    """
+    Same repo + enriched mode should produce identical JSON output across runs.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_conditional_edges("b", router, {"loop": "a", "done": END})
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+
+        r1, w1 = run_pipeline_on_directory(root, enriched=True)
+        r2, w2 = run_pipeline_on_directory(root, enriched=True)
+        assert w1 == w2
+        assert json.dumps(r1, sort_keys=True) == json.dumps(r2, sort_keys=True)
+
+
+def test_run_pipeline_on_directory_enriched_unreadable_file_does_not_crash():
+    """
+    Enriched mode also handles unreadable files safely and still returns warnings.
+    """
+    workflow_source = """
+from langgraph.graph import StateGraph, START
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "workflow.py").write_text(workflow_source)
+        (root / "src" / "bad.py").write_bytes(b"\xff\xfe invalid utf-8")
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) >= 1
+        assert results[0]["schema_version"] == "2.0"
+        assert results[0]["enriched"] is True
+        assert any("could not read" in w for w in warnings)
+
+
+def test_run_pipeline_on_directory_enriched_syntax_error_only_does_not_crash():
+    """
+    Enriched mode on a directory with only syntax-error files returns empty results.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "broken.py").write_text("from langgraph.graph import StateGraph\nx = (  # unclosed")
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert results == []
+        assert isinstance(warnings, list)
+
+
+def test_run_pipeline_on_directory_enriched_multiple_graphs_same_file():
+    """
+    Enriched mode with two graphs in one file produces two enriched dicts.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+a = StateGraph(dict)
+a.add_node("x", fx)
+a.add_edge(START, "x")
+a.add_edge("x", END)
+
+b = StateGraph(dict)
+b.add_node("p", fp)
+b.add_node("q", fq)
+b.add_edge(START, "p")
+b.add_edge("p", "q")
+b.add_edge("q", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "multi.py").write_text(source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) == 2
+        for d in results:
+            assert d["schema_version"] == "2.0"
+            assert d["enriched"] is True
+            assert "shape" in d and "cycles" in d and "metrics" in d
+        # One has 1 node, the other has 2
+        node_counts = sorted(d["metrics"]["node_count"] for d in results)
+        assert node_counts == [1, 2]
+
+
+def test_run_pipeline_on_directory_enriched_annotations_with_source():
+    """
+    Enriched mode: node annotations use source code — local functions get origin=local_function.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+def agent(state):
+    state['result'] = 'done'
+    return state
+
+def checker(state):
+    return state['result']
+
+graph = StateGraph(dict)
+graph.add_node("agent", agent)
+graph.add_node("checker", checker)
+graph.add_edge(START, "agent")
+graph.add_edge("agent", "checker")
+graph.add_edge("checker", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "wf.py").write_text(source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) == 1
+        d = results[0]
+        ann_map = {a["node_name"]: a for a in d["node_annotations"]}
+        assert ann_map["agent"]["origin"] == "local_function"
+        assert ann_map["checker"]["origin"] == "local_function"
+        assert ann_map["agent"]["state_interaction"] == "mutates_state"
+        assert ann_map["checker"]["state_interaction"] == "read_only"
+
+
+def test_run_pipeline_on_directory_enriched_cyclic_graph():
+    """
+    Enriched mode on cyclic workflow: shape is cyclic, at least one cycle detected.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_conditional_edges("b", router, {"loop": "a", "done": END})
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "cyclic.py").write_text(source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) == 1
+        d = results[0]
+        assert d["shape"] == "cyclic"
+        assert len(d["cycles"]) >= 1
+        assert d["cycles"][0]["reaches_terminal"] is True
+        assert d["metrics"]["max_depth_before_cycle"] is not None
+
+
+def test_run_pipeline_on_directory_enriched_branching_graph():
+    """
+    Enriched mode on branching workflow: shape is branching, no cycles.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_node("c", fc)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_edge("a", "c")
+graph.add_edge("b", END)
+graph.add_edge("c", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "branch.py").write_text(source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) == 1
+        d = results[0]
+        assert d["shape"] == "branching"
+        assert d["cycles"] == []
+        assert d["metrics"]["node_count"] == 3
+        assert d["metrics"]["max_depth_before_cycle"] is None
+
+
+def test_run_pipeline_on_directory_enriched_no_dead_ends_linear():
+    """
+    Enriched mode on properly terminated linear graph: no dead-end risks.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_edge("b", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "linear.py").write_text(source)
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) == 1
+        d = results[0]
+        assert d["shape"] == "linear"
+        r = d["risks"]
+        assert r["unreachable_node_ids"] == []
+        assert r["dead_end_ids"] == []
+        assert r["non_terminating_cycle_ids"] == []
+        assert r["multiple_entry_points"] is False
+
+
+# ── Pipeline edge cases ──────────────────────────────────────────────────
+
+
+def test_run_pipeline_on_directory_empty_dir():
+    """Empty directory returns no results and no warnings."""
+    with tempfile.TemporaryDirectory() as tmp:
+        results, warnings = run_pipeline_on_directory(Path(tmp))
+        assert results == []
+        assert warnings == []
+
+
+def test_run_pipeline_on_directory_only_non_langgraph():
+    """Directory with only non-LangGraph .py files returns no results."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "util.py").write_text("def add(a, b): return a + b\n")
+        (root / "main.py").write_text("import util\nprint(util.add(1, 2))\n")
+        results, warnings = run_pipeline_on_directory(root)
+        assert results == []
+        assert warnings == []
+
+
+def test_run_pipeline_on_directory_enriched_empty_dir():
+    """Enriched mode on empty directory returns no results."""
+    with tempfile.TemporaryDirectory() as tmp:
+        results, warnings = run_pipeline_on_directory(Path(tmp), enriched=True)
+        assert results == []
+        assert warnings == []
+
+
+def test_run_pipeline_on_directory_mixed_valid_invalid_enriched():
+    """
+    Enriched mode: directory with one valid workflow, one syntax-error, one unreadable.
+    Only the valid file's graph is returned; warnings collected for bad files.
+    """
+    valid_source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+graph.add_edge("a", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "src" / "valid.py").write_text(valid_source)
+        (root / "src" / "broken.py").write_text(
+            "from langgraph.graph import StateGraph\nx = (  # unclosed"
+        )
+        (root / "src" / "bad.py").write_bytes(b"\xff\xfe invalid utf-8")
+
+        results, warnings = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) >= 1
+        assert results[0]["schema_version"] == "2.0"
+        assert results[0]["enriched"] is True
+        assert any("could not read" in w for w in warnings)
+
+
+def test_run_pipeline_default_vs_enriched_same_graph():
+    """
+    Same directory: default and enriched mode produce same base graph fields,
+    but enriched adds Phase-2 keys.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_node("b", fb)
+graph.add_edge(START, "a")
+graph.add_edge("a", "b")
+graph.add_edge("b", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "wf.py").write_text(source)
+
+        r_base, _ = run_pipeline_on_directory(root, enriched=False)
+        r_enriched, _ = run_pipeline_on_directory(root, enriched=True)
+
+        assert len(r_base) == len(r_enriched) == 1
+        base = r_base[0]
+        enr = r_enriched[0]
+
+        # Same base graph fields
+        assert base["graph_id"] == enr["graph_id"]
+        assert base["entry_point"] == enr["entry_point"]
+        assert base["terminal_nodes"] == enr["terminal_nodes"]
+        assert base["nodes"] == enr["nodes"]
+        assert base["edges"] == enr["edges"]
+
+        # Enriched has extra keys
+        assert base["schema_version"] == "1.0"
+        assert enr["schema_version"] == "2.0"
+        assert "enriched" not in base
+        assert enr["enriched"] is True
+        assert "shape" in enr and "cycles" in enr
+
+
+# ── JSON schema validation for enriched output ───────────────────────────
+
+
+def test_enriched_output_schema_validation():
+    """
+    Rigorous schema validation: every enriched dict has all required keys
+    with correct types, recursively.
+    """
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+def agent(state):
+    state['result'] = 'ok'
+    return state
+
+def checker(state):
+    return state['result']
+
+graph = StateGraph(dict)
+graph.add_node("agent", agent)
+graph.add_node("checker", checker)
+graph.add_edge(START, "agent")
+graph.add_edge("agent", "checker")
+graph.add_conditional_edges("checker", lambda s: "done" if s else "retry", {"done": END, "retry": "agent"})
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "wf.py").write_text(source)
+
+        results, _ = run_pipeline_on_directory(root, enriched=True)
+        assert len(results) >= 1
+
+        for d in results:
+            # Top-level keys
+            assert isinstance(d["schema_version"], str) and d["schema_version"] == "2.0"
+            assert d["enriched"] is True
+            assert isinstance(d["graph_id"], str)
+            assert isinstance(d["entry_point"], (str, type(None)))
+            assert isinstance(d["terminal_nodes"], list)
+            assert isinstance(d["nodes"], list)
+            assert isinstance(d["edges"], list)
+            assert isinstance(d["conditional_edges"], list)
+            assert isinstance(d["shape"], str)
+            assert d["shape"] in ("linear", "branching", "cyclic", "disconnected", "invalid")
+            assert isinstance(d["cycles"], list)
+            assert isinstance(d["metrics"], dict)
+            assert isinstance(d["node_annotations"], list)
+            assert isinstance(d["risks"], dict)
+
+            # Nodes schema
+            for n in d["nodes"]:
+                assert isinstance(n["name"], str)
+                assert isinstance(n["callable_ref"], str)
+                assert isinstance(n["line"], int)
+
+            # Edges schema
+            for e in d["edges"]:
+                assert isinstance(e["source"], str)
+                assert isinstance(e["target"], str)
+                assert isinstance(e["line"], int)
+
+            # Conditional edges schema
+            for e in d["conditional_edges"]:
+                assert isinstance(e["source"], str)
+                assert isinstance(e["target"], str)
+                assert isinstance(e["condition_label"], str)
+                assert isinstance(e["line"], int)
+
+            # Cycles schema
+            for c in d["cycles"]:
+                assert c["cycle_type"] in (
+                    "self_loop", "multi_node", "conditional", "non_terminating"
+                )
+                assert isinstance(c["nodes"], list)
+                assert all(isinstance(n, str) for n in c["nodes"])
+                assert isinstance(c["reaches_terminal"], bool)
+
+            # Metrics schema
+            m = d["metrics"]
+            assert isinstance(m["node_count"], int)
+            assert isinstance(m["edge_count"], int)
+            assert isinstance(m["entry_node"], (str, type(None)))
+            assert isinstance(m["terminal_nodes"], list)
+            assert isinstance(m["unreachable_nodes"], list)
+            assert isinstance(m["longest_acyclic_path"], int)
+            assert isinstance(m["avg_branching_factor"], (int, float))
+            assert isinstance(m["max_depth_before_cycle"], (int, type(None)))
+
+            # Node annotations schema
+            for a in d["node_annotations"]:
+                assert isinstance(a["node_name"], str)
+                assert a["origin"] in (
+                    "local_function", "imported_function", "class_method",
+                    "lambda", "unknown"
+                )
+                assert a["state_interaction"] in (
+                    "pure", "read_only", "mutates_state", "unknown"
+                )
+                assert a["role"] in (
+                    "llm_like", "tool_like", "control_node", "unknown"
+                )
+
+            # Risks schema
+            r = d["risks"]
+            assert isinstance(r["unreachable_node_ids"], list)
+            assert isinstance(r["dead_end_ids"], list)
+            assert isinstance(r["non_terminating_cycle_ids"], list)
+            assert isinstance(r["multiple_entry_points"], bool)
+
+            # Annotation count == node count
+            assert len(d["node_annotations"]) == len(d["nodes"])
+
+            # No token/cost keys anywhere
+            all_keys = " ".join(str(k).lower() for k in d.keys())
+            assert "token" not in all_keys
+            assert "cost" not in all_keys

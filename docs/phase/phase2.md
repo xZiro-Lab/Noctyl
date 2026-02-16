@@ -6,7 +6,7 @@
 
 ## Status
 
-Draft -- Phase-2
+Implemented -- Phase-2
 
 ## Owner
 
@@ -256,3 +256,30 @@ Phase-2 is complete when:
 -   Enriched graph output
 -   Updated test suite
 -   Documentation
+
+------------------------------------------------------------------------
+
+# 12. Implemented (Phase-2)
+
+Phase-2 is implemented. References:
+
+-   **Code:** `noctyl/graph/execution_model.py` (ExecutionModel, execution_model_to_dict); `noctyl/analysis/` (GraphAnalyzer, analyze, control_flow, metrics, node_annotation, structural_risk, digraph); pipeline integration via `run_pipeline_on_directory(..., enriched=True)` in `noctyl/ingestion/pipeline.py`.
+-   **Tests:** `tests/test_execution_model.py`, `tests/test_analysis.py`, `tests/test_golden.py` (golden integration and enriched conditional_loop/linear), `tests/test_ingestion_integration.py` (enriched pipeline).
+-   **Docs:** `docs/flow-diagrams.md` (§11–12) for flow and pipeline API.
+
+------------------------------------------------------------------------
+
+# 13. Enriched output schema
+
+The JSON produced by `execution_model_to_dict` (schema_version 2.0) has:
+
+-   **Top-level:** `schema_version`: `"2.0"`; `enriched`: `true`.
+-   **Base graph (same as Phase 1):** `graph_id`, `entry_point`, `terminal_nodes`, `nodes`, `edges`, `conditional_edges`.
+-   **Enriched keys:**
+    -   `shape`: one of linear | branching | cyclic | disconnected | invalid.
+    -   `cycles`: list of `{ "cycle_type", "nodes", "reaches_terminal" }` (cycle_type: self_loop | multi_node | conditional | non_terminating).
+    -   `metrics`: `node_count`, `edge_count`, `entry_node`, `terminal_nodes`, `unreachable_nodes`, `longest_acyclic_path`, `avg_branching_factor`, `max_depth_before_cycle`.
+    -   `node_annotations`: list of `{ "node_name", "origin", "state_interaction", "role" }`.
+    -   `risks`: `unreachable_node_ids`, `dead_end_ids`, `non_terminating_cycle_ids`, `multiple_entry_points`.
+
+**Token and cost fields are not included.** Phase-2 output is static and LangGraph-only.

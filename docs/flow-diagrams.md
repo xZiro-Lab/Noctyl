@@ -2,7 +2,7 @@
 
 This document collects flow and architecture diagrams for the Noctyl pipeline. All diagrams use Mermaid and can be rendered on GitHub or in any Mermaid-capable viewer.
 
-**Maintenance:** Keep this document in sync with the codebase. When adding or changing pipeline steps (e.g. edge extraction, entry point, compile, repo scanner), add or update the corresponding diagram and section here.
+**Maintenance:** Keep this document in sync with the codebase. When adding or changing pipeline steps (e.g. edge extraction, entry point, compile, repo scanner, Phase 2 GraphAnalyzer), add or update the corresponding diagram and section here.
 
 ---
 
@@ -236,7 +236,7 @@ flowchart LR
 
 ---
 
-## 9. Error handling (Phase-1)
+## 9. Error handling (pipeline safety)
 
 **Strategy:** Best-effort. Invalid or unsupported code: warn and continue; skip and report; emit partial when possible. No fail-fast (see [phase1-scope.md](phase1-scope.md) §8).
 
@@ -252,8 +252,12 @@ flowchart TB
   Read -->|success| HasLangGraph[file_contains_langgraph]
   HasLangGraph -->|False| Loop
   HasLangGraph -->|True| Ingest[track + extract nodes edges entry]
-  Ingest --> Build[build_workflow_graph + workflow_graph_to_dict]
-  Build --> Append[append to results]
+  Ingest --> Build[build_workflow_graph]
+  Build --> Choice{enriched flag}
+  Choice -->|False| Base[workflow_graph_to_dict]
+  Choice -->|True| Analyze[analyze + execution_model_to_dict]
+  Base --> Append[append to results]
+  Analyze --> Append
   Append --> Loop
   Loop --> Done[return results and warnings]
 ```
@@ -272,7 +276,7 @@ flowchart TB
 - **`run_pipeline_on_directory`** (when reading files) appends:
   - `"{path}: could not read"` on OSError or UnicodeDecodeError for that file.
 
-**Tool does not crash:** `run_pipeline_on_directory(root_path)` runs discover → read each file → ingest → build WorkflowGraph → to_dict; it catches file-read errors and skips with a warning, so it never raises for invalid or unreadable files.
+**Tool does not crash:** `run_pipeline_on_directory(root_path, enriched=False)` and `run_pipeline_on_directory(root_path, enriched=True)` both run discover → read each file → ingest → build WorkflowGraph → serialize (base or enriched). File-read errors are caught and skipped with warnings, so the pipeline does not raise for invalid or unreadable files.
 
 ---
 
@@ -299,6 +303,96 @@ for d in results:
 ```
 
 Entry and terminal nodes appear via edges: START → entry_point, and terminal nodes → END. Conditional edge labels are shown on the arrows.
+
+---
+
+## 11. Phase 2: GraphAnalyzer, ExecutionModel and enriched output
+
+Phase 2 adds the **GraphAnalyzer** in `noctyl/analysis`: it takes a **WorkflowGraph** and optional `source` and `file_path`, runs control-flow (SCC, cycles, shape), metrics, node annotation, and structural risk, and returns an **ExecutionModel**. The ExecutionModel holds the Phase 1 graph plus `shape`, `cycles`, `metrics`, `node_annotations`, and `risks`. **execution_model_to_dict(model)** produces a deterministic JSON-serializable dict with `schema_version` 2.0 and `enriched: true`, including the base graph (from `workflow_graph_to_dict(model.graph)`) and enriched fields. No token or cost fields; analysis is static and LangGraph-only.
+
+```mermaid
+flowchart LR
+  subgraph phase1 [Phase 1]
+    WG[WorkflowGraph]
+    WG -->|workflow_graph_to_dict| BaseDict[base dict]
+  end
+  subgraph phase2 [Phase 2]
+    Analyzer[GraphAnalyzer.analyze]
+    EM[ExecutionModel]
+    Analyzer -->|returns| EM
+    EM -->|execution_model_to_dict| EnrichedDict[enriched dict schema_version 2.0]
+    BaseDict -.->|merged into| EnrichedDict
+  end
+  WG -->|wg, source, file_path| Analyzer
+```
+
+**API:** `analyze(workflow_graph, *, source=None, file_path=None) -> ExecutionModel` (or `GraphAnalyzer().analyze(...)`). When `source` (and optionally `file_path`) is provided, node annotations use the source for origin, state interaction, and role heuristics; otherwise annotations are unknown.
+
+**ExecutionModel fields:** `graph` (WorkflowGraph), `entry_point`, `terminal_nodes`, `shape` (linear | branching | cyclic | disconnected | invalid), `cycles` (DetectedCycle), `metrics` (StructuralMetrics), `node_annotations` (NodeAnnotation), `risks` (StructuralRisk).
+
+### 11a. Internal analysis pipeline
+
+Inside `GraphAnalyzer.analyze`, the WorkflowGraph passes through five analysis stages. Each stage is a separate module in `noctyl/analysis/`.
+
+```mermaid
+flowchart TB
+  WG[WorkflowGraph] --> DG[build_digraph]
+  DG --> DirectedGraph[DirectedGraph]
+  DirectedGraph --> CF[compute_control_flow]
+  CF --> ShapeCycles["shape + list of DetectedCycle"]
+  DirectedGraph --> Met[compute_metrics]
+  ShapeCycles --> Met
+  Met --> Metrics[StructuralMetrics]
+  WG -->|source, file_path| Ann[compute_node_annotations]
+  Ann --> Annotations["tuple of NodeAnnotation"]
+  WG --> Risk[compute_structural_risk]
+  Metrics --> Risk
+  ShapeCycles --> Risk
+  DirectedGraph --> Risk
+  Risk --> Risks[StructuralRisk]
+  ShapeCycles --> EM[ExecutionModel]
+  Metrics --> EM
+  Annotations --> EM
+  Risks --> EM
+  WG --> EM
+```
+
+| Module | Responsibility |
+|--------|---------------|
+| `digraph.py` | Build `DirectedGraph` (adjacency lists + conditional-edge set) from WorkflowGraph; includes START/END sentinel nodes. |
+| `control_flow.py` | Tarjan's SCC algorithm for cycle detection; classify each cycle as `self_loop`, `multi_node`, `conditional`, or `non_terminating`; termination reachability (BFS to END); graph shape classification. |
+| `metrics.py` | Node/edge counts, unreachable nodes (BFS from START), longest acyclic path (DFS), average branching factor, max depth before first cycle node. |
+| `node_annotation.py` | Per-node semantic annotation from AST: `origin` (local_function, imported_function, class_method, lambda, unknown), `state_interaction` (pure, read_only, mutates_state, unknown), `role` (llm_like, tool_like, control_node, unknown). |
+| `structural_risk.py` | Aggregate risks: unreachable node IDs, dead-end IDs (out-degree 0, not terminal), non-terminating cycle IDs, multiple entry points flag. |
+
+All algorithms use Python's standard library only (no `networkx` dependency).
+
+---
+
+## 12. Pipeline with optional Phase 2 enriched output
+
+When the pipeline is run with Phase 2 integration, after building each WorkflowGraph the runner can call the analyzer and serialize the ExecutionModel for enriched output. Phase-1-only callers continue to receive base dicts (e.g. from `workflow_graph_to_dict`); enriched callers receive schema 2.0 dicts with cycles, shape, metrics, node_annotations, and risks.
+
+```mermaid
+flowchart TB
+  Root[root_path] --> Discover[discover_python_files]
+  Discover --> Paths[list of .py paths]
+  Paths --> Loop[for each path]
+  Loop --> Read[read_text]
+  Read --> Ingest[track + extract nodes edges entry]
+  Ingest --> Build[build_workflow_graph]
+  Build --> WG[WorkflowGraph]
+  WG --> Choice{output mode}
+  Choice -->|Phase 1 only| Base[workflow_graph_to_dict]
+  Choice -->|Phase 2 enriched| Analyze[analyze wg source file_path]
+  Analyze --> EM[ExecutionModel]
+  EM --> Enriched[execution_model_to_dict]
+  Base --> Append[append to results]
+  Enriched --> Append
+  Append --> Loop
+```
+
+**API:** `run_pipeline_on_directory(root_path, enriched=False)` (default). When `enriched` is False, each result dict is from `workflow_graph_to_dict` (Phase-1). When `enriched` is True, the pipeline uses the Phase 2 path: for each graph it calls `analyze(wg, source=source, file_path=file_path)` then `execution_model_to_dict(model)` and returns those enriched dicts. Backward compatibility: existing callers that omit `enriched` get Phase-1-only output. See [phase2_task3_pipeline_integration.md](../.github/ISSUE_TEMPLATE/phase2_task3_pipeline_integration.md).
 
 ---
 

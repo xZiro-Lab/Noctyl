@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from noctyl.graph import build_workflow_graph, workflow_graph_to_dict
+from noctyl.analysis import analyze
+from noctyl.graph import build_workflow_graph, execution_model_to_dict, workflow_graph_to_dict
 from noctyl.ingestion.edge_extractor import (
     extract_add_conditional_edges,
     extract_add_edge_calls,
@@ -21,14 +22,22 @@ from noctyl.ingestion.stategraph_tracker import track_stategraph_instances
 
 def run_pipeline_on_directory(
     root_path: Path | str,
+    *,
+    enriched: bool = False,
 ) -> tuple[list[dict], list[str]]:
     """
     Run the full pipeline on a directory: discover .py files, read each, ingest,
     build WorkflowGraph per graph, serialize to dict. Does not raise for
     unreadable or invalid files; skips with a warning.
 
+    When enriched is False (default), each result dict is from workflow_graph_to_dict
+    (Phase-1, schema_version 1.0). When enriched is True, each result is from
+    execution_model_to_dict(analyze(wg, source=source, file_path=file_path))
+    (Phase-2, schema_version 2.0, enriched true) and includes cycles, shape,
+    metrics, node_annotations, risks; no token or cost fields.
+
     Returns:
-        (list of workflow dicts from workflow_graph_to_dict, list of warning strings).
+        (list of workflow dicts, list of warning strings).
     """
     root = Path(root_path).resolve()
     paths = discover_python_files(root)
@@ -61,6 +70,13 @@ def run_pipeline_on_directory(
             wg = build_workflow_graph(
                 t.graph_id, nodes, edges, cond, entry_point
             )
-            results.append(workflow_graph_to_dict(wg))
+            if enriched:
+                results.append(
+                    execution_model_to_dict(
+                        analyze(wg, source=source, file_path=file_path)
+                    )
+                )
+            else:
+                results.append(workflow_graph_to_dict(wg))
 
     return (results, warnings)
