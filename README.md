@@ -47,6 +47,10 @@ Noctyl answers:
   - Builds a directed semantic graph from agentic codebases
   - Captures agents, tools, loops, retries, and memory interactions
 
+- 📊 **Enriched workflow graph (Phase 2)**
+  - **GraphAnalyzer** and **ExecutionModel** for control-flow, cycles, metrics, node annotations, and structural risks
+  - Optional `enriched=True` pipeline output (schema 2.0); see `docs/phase/phase2.md` and `docs/flow-diagrams.md`
+
 - 📐 **Static Token Estimation**
   - Prompt size analysis
   - Memory replay modeling
@@ -96,99 +100,73 @@ noctyl/
 ├── install.sh
 ├── .gitignore
 │
-├── noctyl/                     # Core package
+├── noctyl/                         # Core package
 │   ├── __init__.py
 │   │
-│   ├── cli/                    # CLI entrypoints
+│   ├── ingestion/                  # Repo scanning, detection & extraction (Phase 1)
 │   │   ├── __init__.py
-│   │   ├── main.py             # `noctyl` command
-│   │   └── commands.py         # analyze, graph, report
+│   │   ├── pipeline.py             # run_pipeline_on_directory (Phase 1 + Phase 2)
+│   │   ├── repo_scanner.py         # discover_python_files + default ignores
+│   │   ├── langgraph_detector.py   # has_langgraph_import / file_contains_langgraph
+│   │   ├── stategraph_tracker.py   # track StateGraph instances per file
+│   │   ├── node_extractor.py       # extract add_node calls per graph
+│   │   ├── edge_extractor.py       # extract add_edge / add_conditional_edges / entry points
+│   │   └── receiver_resolution.py  # alias map + resolve receiver to tracked graph
 │   │
-│   ├── ingestion/              # Repo scanning & parsing
+│   ├── graph/                      # Data model, serialization & visualization
 │   │   ├── __init__.py
-│   │   ├── repo_scanner.py     # Walk filesystem
-│   │   ├── ast_parser.py       # Python AST parsing
-│   │   └── framework_adapters/
-│   │       ├── __init__.py
-│   │       ├── base.py
-│   │       ├── langchain.py
-│   │       ├── crewai.py
-│   │       └── autogen.py
+│   │   ├── graph.py                # WorkflowGraph, build_workflow_graph, workflow_graph_to_dict
+│   │   ├── nodes.py                # ExtractedNode dataclass
+│   │   ├── edges.py                # ExtractedEdge, ExtractedConditionalEdge dataclasses
+│   │   ├── execution_model.py      # ExecutionModel, DetectedCycle, StructuralMetrics, etc. (Phase 2)
+│   │   └── mermaid.py              # workflow_dict_to_mermaid (Mermaid flowchart generation)
 │   │
-│   ├── graph/                  # Workflow graph construction
-│   │   ├── __init__.py
-│   │   ├── graph.py            # Graph data model
-│   │   ├── nodes.py            # Node types
-│   │   ├── edges.py            # Edge semantics
-│   │   └── builder.py          # Build graph from parsed code
-│   │
-│   ├── prompts/                # Prompt & memory analysis
-│   │   ├── __init__.py
-│   │   ├── extractor.py        # Prompt extraction
-│   │   ├── memory_model.py     # Memory growth modeling
-│   │   └── templates/
-│   │       ├── optimize.md.j2
-│   │       ├── cost.md.j2
-│   │       └── safety.md.j2
-│   │
-│   ├── tokenization/           # Token estimation logic
-│   │   ├── __init__.py
-│   │   ├── estimator.py
-│   │   ├── tokenizer.py
-│   │   ├── pricing.py
-│   │   └── models.yaml
-│   │
-│   ├── analysis/               # Risk & heuristic analysis
-│   │   ├── __init__.py
-│   │   ├── risk.py
-│   │   ├── heuristics.py
-│   │   └── validators.py
-│   │
-│   ├── report/                 # Output generation
-│   │   ├── __init__.py
-│   │   ├── json_report.py
-│   │   ├── markdown_report.py
-│   │   └── html_report.py
-│   │
-│   ├── ai_context/             # AI-assistant integration
-│   │   ├── __init__.py
-│   │   ├── composer.py         # Build AI-readable context
-│   │   └── schema.py           # Contract for AI tools
-│   │
-│   └── utils/
+│   └── analysis/                   # Static graph analysis (Phase 2)
 │       ├── __init__.py
-│       ├── logger.py
-│       ├── config.py
-│       └── filesystem.py
+│       ├── analyzer.py             # GraphAnalyzer.analyze → ExecutionModel
+│       ├── digraph.py              # DirectedGraph from WorkflowGraph
+│       ├── control_flow.py         # Tarjan SCC, cycle detection, graph shape
+│       ├── metrics.py              # Structural metrics (counts, paths, branching)
+│       ├── node_annotation.py      # Per-node semantic annotation from AST
+│       └── structural_risk.py      # Risk detection (unreachable, dead-ends, non-terminating)
 │
-├── examples/                   # Golden repos for testing
-│   ├── linear_agent/
-│   ├── agent_with_loop/
-│   └── agent_with_memory/
+├── tests/                          # 266 tests (pytest)
+│   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
+│   ├── test_analysis.py            # Phase 2 analysis module tests
+│   ├── test_execution_model.py     # ExecutionModel serialization & immutability tests
+│   ├── test_golden.py              # Golden fixture integration tests
+│   ├── test_golden_mermaid.py      # Mermaid generation for golden fixtures
+│   ├── test_ingestion_integration.py  # Full pipeline integration tests
+│   ├── test_receiver_resolution.py # Alias map & receiver resolution tests
+│   ├── test_graph_schema.py        # WorkflowGraph schema & serialization tests
+│   ├── test_mermaid.py             # Mermaid diagram generation tests
+│   ├── test_langgraph_detector.py  # LangGraph detection tests
+│   ├── test_stategraph_tracker.py  # StateGraph tracking tests
+│   ├── test_node_extractor.py      # Node extraction tests
+│   ├── test_edge_extractor.py      # Edge extraction tests
+│   ├── test_conditional_edges.py   # Conditional edge extraction tests
+│   ├── test_entry_point.py         # Entry point detection tests
+│   ├── test_repo_scanner.py        # File discovery tests
+│   └── test_example_multi_agent.py # Multi-agent example tests
 │
-├── tests/
-│   ├── test_graph_builder.py
-│   ├── test_loop_detection.py
-│   ├── test_token_estimation.py
-│   └── test_risk_analysis.py
-│
-├── docs/                       # Extended documentation
-│   ├── architecture.md
-│   ├── graph_model.md
-│   ├── ai_integration.md
-│   └── research_notes.md
+├── docs/
+│   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
+│   └── phase/
+│       ├── phase1-scope.md         # Phase 1 scope & design
+│       └── phase2.md               # Phase 2 design & implementation status
 │
 └── .github/
-    ├── workflows/
-    │   └── release.yml         # Binary / package releases
-    └── ISSUE_TEMPLATE.md
+    └── ISSUE_TEMPLATE/             # Phase task issue templates
 ```
 
 ---
 
 ## Status
 
-Experimental — APIs and behavior may change.
+**Phase 1** (LangGraph ingestion pipeline) — Implemented and tested.
+**Phase 2** (Static graph analysis: control-flow, metrics, annotations, risks) — Implemented and tested.
+
+266 tests across 16 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

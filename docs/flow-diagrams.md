@@ -330,6 +330,43 @@ flowchart LR
 
 **ExecutionModel fields:** `graph` (WorkflowGraph), `entry_point`, `terminal_nodes`, `shape` (linear | branching | cyclic | disconnected | invalid), `cycles` (DetectedCycle), `metrics` (StructuralMetrics), `node_annotations` (NodeAnnotation), `risks` (StructuralRisk).
 
+### 11a. Internal analysis pipeline
+
+Inside `GraphAnalyzer.analyze`, the WorkflowGraph passes through five analysis stages. Each stage is a separate module in `noctyl/analysis/`.
+
+```mermaid
+flowchart TB
+  WG[WorkflowGraph] --> DG[build_digraph]
+  DG --> DirectedGraph[DirectedGraph]
+  DirectedGraph --> CF[compute_control_flow]
+  CF --> ShapeCycles["shape + list of DetectedCycle"]
+  DirectedGraph --> Met[compute_metrics]
+  ShapeCycles --> Met
+  Met --> Metrics[StructuralMetrics]
+  WG -->|source, file_path| Ann[compute_node_annotations]
+  Ann --> Annotations["tuple of NodeAnnotation"]
+  WG --> Risk[compute_structural_risk]
+  Metrics --> Risk
+  ShapeCycles --> Risk
+  DirectedGraph --> Risk
+  Risk --> Risks[StructuralRisk]
+  ShapeCycles --> EM[ExecutionModel]
+  Metrics --> EM
+  Annotations --> EM
+  Risks --> EM
+  WG --> EM
+```
+
+| Module | Responsibility |
+|--------|---------------|
+| `digraph.py` | Build `DirectedGraph` (adjacency lists + conditional-edge set) from WorkflowGraph; includes START/END sentinel nodes. |
+| `control_flow.py` | Tarjan's SCC algorithm for cycle detection; classify each cycle as `self_loop`, `multi_node`, `conditional`, or `non_terminating`; termination reachability (BFS to END); graph shape classification. |
+| `metrics.py` | Node/edge counts, unreachable nodes (BFS from START), longest acyclic path (DFS), average branching factor, max depth before first cycle node. |
+| `node_annotation.py` | Per-node semantic annotation from AST: `origin` (local_function, imported_function, class_method, lambda, unknown), `state_interaction` (pure, read_only, mutates_state, unknown), `role` (llm_like, tool_like, control_node, unknown). |
+| `structural_risk.py` | Aggregate risks: unreachable node IDs, dead-end IDs (out-degree 0, not terminal), non-terminating cycle IDs, multiple entry points flag. |
+
+All algorithms use Python's standard library only (no `networkx` dependency).
+
 ---
 
 ## 12. Pipeline with optional Phase 2 enriched output

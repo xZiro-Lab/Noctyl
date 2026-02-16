@@ -150,3 +150,111 @@ def test_golden_enriched_returns_schema_v2():
         assert linear["shape"] == "linear"
         assert linear["entry_point"] == "a"
         assert linear["terminal_nodes"] == ["b"]
+
+
+def test_golden_enriched_conditional_loop_shape_and_cycle():
+    """Golden conditional_loop fixture yields cyclic shape and at least one cycle containing a, reaches_terminal True."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    cond_loop = _find_graph(
+        results,
+        lambda d: _node_names(d) == {"a", "b"}
+        and d["entry_point"] == "a"
+        and any(e["condition_label"] == "done" for e in d["conditional_edges"]),
+    )
+    assert cond_loop is not None
+    assert cond_loop["shape"] == "cyclic"
+    assert len(cond_loop["cycles"]) >= 1
+    cycle_with_a = [c for c in cond_loop["cycles"] if "a" in c["nodes"]]
+    assert len(cycle_with_a) >= 1
+    assert any(c["reaches_terminal"] is True for c in cycle_with_a)
+
+
+# ── Enriched golden: metrics validation ──────────────────────────────────
+
+
+def test_golden_enriched_metrics_linear():
+    """Enriched linear fixture: metrics match expected counts."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    linear = _find_graph(
+        results,
+        lambda d: _node_names(d) == {"a", "b"}
+        and not d["conditional_edges"]
+        and d["entry_point"] == "a"
+        and ("b", "END") in [(e["source"], e["target"]) for e in d["edges"]],
+    )
+    assert linear is not None
+    m = linear["metrics"]
+    assert m["node_count"] == 2
+    assert m["edge_count"] == 3  # START->a, a->b, b->END
+    assert m["entry_node"] == "a"
+    assert m["terminal_nodes"] == ["b"]
+    assert m["unreachable_nodes"] == []
+    assert m["max_depth_before_cycle"] is None  # no cycles
+
+
+def test_golden_enriched_risks_linear():
+    """Enriched linear fixture: no structural risks."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    linear = _find_graph(
+        results,
+        lambda d: _node_names(d) == {"a", "b"}
+        and not d["conditional_edges"]
+        and d["entry_point"] == "a"
+        and ("b", "END") in [(e["source"], e["target"]) for e in d["edges"]],
+    )
+    assert linear is not None
+    r = linear["risks"]
+    assert r["unreachable_node_ids"] == []
+    assert r["dead_end_ids"] == []
+    assert r["non_terminating_cycle_ids"] == []
+    assert r["multiple_entry_points"] is False
+
+
+def test_golden_enriched_node_annotations_present():
+    """Enriched output always has one annotation per node."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    for d in results:
+        node_count = len(d["nodes"])
+        ann_count = len(d["node_annotations"])
+        assert ann_count == node_count, (
+            f"graph {d['graph_id']}: {ann_count} annotations != {node_count} nodes"
+        )
+
+
+def test_golden_enriched_multiple_graphs_both_enriched():
+    """Multiple-graphs fixture: both graphs get independent enriched output."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    xy = _find_graph(results, lambda d: _node_names(d) == {"x", "y"})
+    pq = _find_graph(results, lambda d: _node_names(d) == {"p", "q"})
+    assert xy is not None and pq is not None
+    for g in (xy, pq):
+        assert g["schema_version"] == "2.0"
+        assert g["enriched"] is True
+        assert "shape" in g
+        assert "metrics" in g and g["metrics"]["node_count"] == 2
+        assert len(g["node_annotations"]) == 2
+
+
+def test_golden_enriched_single_node_metrics():
+    """Single-node fixture: metrics node_count 1, entry and terminal match."""
+    results, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    single = _find_graph(
+        results,
+        lambda d: len(d["nodes"]) == 1
+        and _node_names(d) == {"a"}
+        and d["terminal_nodes"] == ["a"],
+    )
+    assert single is not None
+    m = single["metrics"]
+    assert m["node_count"] == 1
+    assert m["entry_node"] == "a"
+    assert m["terminal_nodes"] == ["a"]
+
+
+def test_golden_enriched_deterministic():
+    """Two enriched runs on golden dir produce identical JSON."""
+    import json
+
+    r1, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    r2, _ = run_pipeline_on_directory(GOLDEN_DIR, enriched=True)
+    assert json.dumps(r1, sort_keys=True) == json.dumps(r2, sort_keys=True)

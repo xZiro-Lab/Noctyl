@@ -358,3 +358,182 @@ def test_shape_values_are_serialized(shape):
     )
     d = execution_model_to_dict(shaped)
     assert d["shape"] == shape
+
+
+# ── Frozen dataclass immutability ─────────────────────────────────────────
+
+
+def test_execution_model_frozen():
+    """ExecutionModel instances are immutable (frozen=True)."""
+    model = _minimal_execution_model()
+    with pytest.raises(AttributeError):
+        model.shape = "cyclic"
+
+
+def test_detected_cycle_frozen():
+    """DetectedCycle is immutable."""
+    c = DetectedCycle("self_loop", ("a",), True)
+    with pytest.raises(AttributeError):
+        c.cycle_type = "multi_node"
+
+
+def test_structural_metrics_frozen():
+    """StructuralMetrics is immutable."""
+    m = _minimal_execution_model().metrics
+    with pytest.raises(AttributeError):
+        m.node_count = 99
+
+
+def test_node_annotation_frozen():
+    """NodeAnnotation is immutable."""
+    a = NodeAnnotation("n", "unknown", "unknown", "unknown")
+    with pytest.raises(AttributeError):
+        a.origin = "lambda"
+
+
+def test_structural_risk_frozen():
+    """StructuralRisk is immutable."""
+    r = StructuralRisk((), (), (), False)
+    with pytest.raises(AttributeError):
+        r.multiple_entry_points = True
+
+
+# ── max_depth_before_cycle None vs int ────────────────────────────────────
+
+
+def test_metrics_max_depth_none_serialized():
+    """When max_depth_before_cycle is None it serializes as null/None."""
+    model = _minimal_execution_model()
+    d = execution_model_to_dict(model)
+    assert d["metrics"]["max_depth_before_cycle"] is None
+    s = json.dumps(d)
+    assert '"max_depth_before_cycle": null' in s
+
+
+def test_metrics_max_depth_int_serialized():
+    """When max_depth_before_cycle is an int it serializes as that int."""
+    wg = _minimal_workflow_graph()
+    metrics = StructuralMetrics(
+        node_count=2, edge_count=1, entry_node="a", terminal_nodes=(),
+        unreachable_nodes=(), longest_acyclic_path=2, avg_branching_factor=1.0,
+        max_depth_before_cycle=3,
+    )
+    model = ExecutionModel(
+        graph=wg, entry_point="a", terminal_nodes=(), shape="cyclic",
+        cycles=(), metrics=metrics, node_annotations=(),
+        risks=StructuralRisk((), (), (), False),
+    )
+    d = execution_model_to_dict(model)
+    assert d["metrics"]["max_depth_before_cycle"] == 3
+
+
+# ── Multiple cycles complex sorting ──────────────────────────────────────
+
+
+def test_many_cycles_fully_sorted():
+    """Multiple cycles with mixed types sort by (type, nodes tuple)."""
+    wg = _minimal_workflow_graph()
+    metrics = StructuralMetrics(
+        node_count=2, edge_count=1, entry_node="a", terminal_nodes=(),
+        unreachable_nodes=(), longest_acyclic_path=2, avg_branching_factor=1.0,
+        max_depth_before_cycle=None,
+    )
+    cycles = (
+        DetectedCycle("self_loop", ("z",), True),
+        DetectedCycle("conditional", ("a", "b"), True),
+        DetectedCycle("multi_node", ("a", "c"), True),
+        DetectedCycle("non_terminating", ("x",), False),
+        DetectedCycle("conditional", ("a", "a"), True),
+        DetectedCycle("self_loop", ("a",), False),
+    )
+    model = ExecutionModel(
+        graph=wg, entry_point="a", terminal_nodes=(), shape="cyclic",
+        cycles=cycles, metrics=metrics, node_annotations=(),
+        risks=StructuralRisk((), (), (), False),
+    )
+    d = execution_model_to_dict(model)
+    serialized_types = [c["cycle_type"] for c in d["cycles"]]
+    # conditional < multi_node < non_terminating < self_loop  (lexicographic)
+    assert serialized_types == [
+        "conditional", "conditional", "multi_node",
+        "non_terminating", "self_loop", "self_loop",
+    ]
+    # Within same type, nodes tuples are compared lexicographically
+    cond_cycles = [c for c in d["cycles"] if c["cycle_type"] == "conditional"]
+    assert cond_cycles[0]["nodes"] == ["a", "a"]
+    assert cond_cycles[1]["nodes"] == ["a", "b"]
+    sl_cycles = [c for c in d["cycles"] if c["cycle_type"] == "self_loop"]
+    assert sl_cycles[0]["nodes"] == ["a"]
+    assert sl_cycles[1]["nodes"] == ["z"]
+
+
+# ── Large graph serialization ─────────────────────────────────────────────
+
+
+def test_large_graph_serialization():
+    """Serializing a model with many nodes/annotations is still deterministic."""
+    n = 50
+    nodes = [ExtractedNode(f"n{i:03d}", f"f{i}", i) for i in range(n)]
+    edges = [ExtractedEdge(f"n{i:03d}", f"n{i+1:03d}", 100 + i) for i in range(n - 1)]
+    edges.append(ExtractedEdge(f"n{n-1:03d}", "END", 200))
+    wg = build_workflow_graph("id:big", nodes, edges, [], "n000")
+    metrics = StructuralMetrics(
+        node_count=n, edge_count=n, entry_node="n000", terminal_nodes=(f"n{n-1:03d}",),
+        unreachable_nodes=(), longest_acyclic_path=n, avg_branching_factor=1.0,
+        max_depth_before_cycle=None,
+    )
+    annotations = tuple(
+        NodeAnnotation(f"n{i:03d}", "local_function", "pure", "unknown")
+        for i in range(n)
+    )
+    model = ExecutionModel(
+        graph=wg, entry_point="n000", terminal_nodes=(f"n{n-1:03d}",), shape="linear",
+        cycles=(), metrics=metrics, node_annotations=annotations,
+        risks=StructuralRisk((), (), (), False),
+    )
+    d1 = execution_model_to_dict(model)
+    d2 = execution_model_to_dict(model)
+    assert json.dumps(d1, sort_keys=True) == json.dumps(d2, sort_keys=True)
+    assert len(d1["nodes"]) == n
+    assert len(d1["node_annotations"]) == n
+    # Annotations sorted by name
+    ann_names = [a["node_name"] for a in d1["node_annotations"]]
+    assert ann_names == sorted(ann_names)
+
+
+# ── Risks serialization edge cases ────────────────────────────────────────
+
+
+def test_risks_all_populated():
+    """All risk fields populated serialize correctly."""
+    wg = _minimal_workflow_graph()
+    metrics = StructuralMetrics(
+        node_count=2, edge_count=1, entry_node="a", terminal_nodes=(),
+        unreachable_nodes=("orphan1", "orphan2"), longest_acyclic_path=2,
+        avg_branching_factor=1.0, max_depth_before_cycle=None,
+    )
+    risks = StructuralRisk(
+        unreachable_node_ids=("orphan1", "orphan2"),
+        dead_end_ids=("dead1",),
+        non_terminating_cycle_ids=("a|b", "c|d"),
+        multiple_entry_points=True,
+    )
+    model = ExecutionModel(
+        graph=wg, entry_point="a", terminal_nodes=(), shape="invalid",
+        cycles=(), metrics=metrics, node_annotations=(),
+        risks=risks,
+    )
+    d = execution_model_to_dict(model)
+    r = d["risks"]
+    assert r["unreachable_node_ids"] == ["orphan1", "orphan2"]
+    assert r["dead_end_ids"] == ["dead1"]
+    assert r["non_terminating_cycle_ids"] == ["a|b", "c|d"]
+    assert r["multiple_entry_points"] is True
+
+
+def test_enriched_output_does_not_contain_enriched_false():
+    """Enriched dict never has enriched=False — always True."""
+    model = _minimal_execution_model()
+    d = execution_model_to_dict(model)
+    assert d["enriched"] is True
+    assert d["enriched"] is not False
