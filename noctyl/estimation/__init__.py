@@ -16,6 +16,7 @@ from noctyl.estimation.prompt_detection import (
     detect_prompt_strings,
     estimate_tokens_from_string,
 )
+from noctyl.estimation.profile_loader import default_model_profile, load_model_profile
 from noctyl.estimation.serializer import (
     ESTIMATED_SCHEMA_VERSION,
     workflow_estimate_to_dict,
@@ -34,8 +35,10 @@ __all__ = [
     "apply_loop_amplification",
     "compute_branch_envelopes",
     "compute_node_token_signatures",
+    "default_model_profile",
     "detect_prompt_strings",
     "estimate_tokens_from_string",
+    "load_model_profile",
     "propagate_tokens",
     "workflow_estimate_to_dict",
 ]

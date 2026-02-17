@@ -740,4 +740,94 @@ flowchart TB
 
 ---
 
+## 14a. CLI Estimate Command Flow
+
+The `noctyl estimate` CLI command provides a command-line interface for token estimation. It parses arguments, loads model profiles (YAML files or defaults), invokes the pipeline with `estimate=True`, and outputs JSON to stdout or a file.
+
+```mermaid
+flowchart TB
+  CLI[noctyl estimate command] --> Parse[argparse: parse args]
+  Parse --> PathArg[path argument]
+  Parse --> ProfileFlag[--profile flag optional]
+  Parse --> OutputFlag[--output flag optional]
+  
+  PathArg --> ValidatePath[validate path exists]
+  ValidatePath -->|invalid| Error[print error to stderr, exit 1]
+  ValidatePath -->|valid| LoadProfile{profile provided?}
+  
+  ProfileFlag --> LoadProfile
+  LoadProfile -->|yes| LoadYAML[load_model_profile yaml_file]
+  LoadProfile -->|no| DefaultProfile[load_model_profile None]
+  
+  LoadYAML -->|error| DefaultProfile
+  LoadYAML -->|success| Profile[ModelProfile]
+  DefaultProfile --> Profile
+  
+  Profile --> Pipeline[run_pipeline_on_directory path estimate=True profile]
+  Pipeline --> Results[results list of dicts]
+  Pipeline --> Warnings[warnings list]
+  
+  Results --> Serialize[json.dumps results indent=2 sort_keys=True]
+  Serialize --> Output{--output flag?}
+  
+  Output -->|yes| WriteFile[write JSON to file]
+  Output -->|no| PrintStdout[print JSON to stdout]
+  
+  WriteFile --> CheckWarnings{warnings present?}
+  PrintStdout --> CheckWarnings
+  
+  CheckWarnings -->|yes| PrintStderr[print warnings to stderr]
+  CheckWarnings -->|no| Exit0[exit code 0]
+  PrintStderr --> Exit1[exit code 1]
+```
+
+**CLI Usage:**
+```bash
+# Basic usage (default profile)
+noctyl estimate ./my_project
+
+# With custom profile
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml
+
+# Save to file
+noctyl estimate ./my_project --output estimates.json
+
+# With profile and output file
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml --output estimates.json
+```
+
+**Profile File Format (YAML):**
+```yaml
+# Single profile format
+name: gpt-4o
+expansion_factor: 1.2
+output_ratio: 0.6
+pricing:
+  input_per_1k: 0.005
+  output_per_1k: 0.015
+
+# Multi-profile format
+model_profiles:
+  gpt-4o:
+    expansion_factor: 1.2
+    output_ratio: 0.6
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
+  claude-3:
+    expansion_factor: 1.1
+    output_ratio: 0.5
+    pricing:
+      input_per_1k: 0.003
+      output_per_1k: 0.015
+```
+
+**Error Handling:**
+- Invalid path: prints error to stderr, exits with code 1
+- Invalid profile file: falls back to default profile, adds warning, may exit with code 1 if warnings cause non-zero exit
+- File read errors: handled by pipeline, warnings collected
+- JSON serialization errors: prints error to stderr, exits with code 1
+
+---
+
 *Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, etc.).*

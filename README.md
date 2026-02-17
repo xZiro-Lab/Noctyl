@@ -90,6 +90,46 @@ Noctyl runs **before execution**, not during or after.
 curl -fsSL https://raw.githubusercontent.com/xZiro-Lab/Noctyl/main/install.sh | bash
 ```
 
+### CLI Usage
+
+After installation, use the `noctyl estimate` command to estimate token usage:
+
+```bash
+# Basic usage (default profile)
+noctyl estimate ./my_project
+
+# With custom model profile
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml
+
+# Save output to file
+noctyl estimate ./my_project --output estimates.json
+
+# With profile and output file
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml --output estimates.json
+```
+
+**Profile File Format (YAML):**
+```yaml
+# Single profile format
+name: gpt-4o
+expansion_factor: 1.2
+output_ratio: 0.6
+pricing:
+  input_per_1k: 0.005
+  output_per_1k: 0.015
+
+# Multi-profile format (first profile used)
+model_profiles:
+  gpt-4o:
+    expansion_factor: 1.2
+    output_ratio: 0.6
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
+```
+
+**Output:** The CLI outputs JSON with schema 3.0 format, including token estimates, node signatures, per-node and per-path envelopes, and warnings. See `docs/phase/phase3.md` for details.
+
 ---
 
 ## Project structure
@@ -141,7 +181,10 @@ noctyl/
 │       ├── loop_amplification.py  # Loop amplification using DetectedCycle data
 │       ├── branch_envelope.py     # Branch envelope computation for conditional paths
 │       ├── aggregation.py         # Workflow-level envelope aggregation
-│       └── token_modeler.py       # TokenModeler class orchestrating the pipeline
+│       ├── token_modeler.py       # TokenModeler class orchestrating the pipeline
+│       └── profile_loader.py      # YAML profile loading and defaults
+│   │
+│   └── cli.py                       # CLI command interface (noctyl estimate)
 │
 ├── tests/                          # 297 tests (pytest)
 │   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
@@ -168,7 +211,10 @@ noctyl/
 │   ├── test_loop_amplification.py  # Phase 3 loop amplification tests
 │   ├── test_branch_envelope.py    # Phase 3 branch envelope tests
 │   ├── test_aggregation.py         # Phase 3 workflow aggregation tests
-│   └── test_token_modeler.py       # Phase 3 TokenModeler integration tests
+│   ├── test_token_modeler.py       # Phase 3 TokenModeler integration tests
+│   ├── test_profile_loader.py       # Phase 3 profile loader tests
+│   ├── test_pipeline_integration.py  # Phase 3 pipeline integration tests
+│   └── test_cli.py                  # CLI tests
 │
 ├── docs/
 │   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
@@ -191,8 +237,9 @@ noctyl/
   - **Task 1** (Data model and schema 3.0 serializer) — Implemented and tested ✓
   - **Task 2** (Prompt size detection) — Implemented and tested ✓
   - **Task 3** (TokenModeler: propagation, loops, branches, aggregation) — Implemented and tested ✓
+  - **Task 4** (Pipeline integration & CLI) — Implemented and tested ✓
 
-388 tests across 22 test files, all passing. APIs and behavior may evolve as new phases are added.
+443+ tests across 25 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

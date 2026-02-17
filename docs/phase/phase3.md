@@ -496,3 +496,145 @@ All Phase 2 enriched fields (`shape`, `cycles`, `metrics`, `node_annotations`, `
 - Related: `noctyl/analysis/digraph.py` (DirectedGraph), `noctyl/graph/execution_model.py` (DetectedCycle)
 
 ------------------------------------------------------------------------
+
+## 22. Implemented (Phase-3 Task 4): Pipeline Integration & CLI
+
+**Status:** Implemented and tested ✓
+
+### Code
+
+**New modules:**
+- **`noctyl/estimation/profile_loader.py`** — YAML profile loading and defaults
+  - `default_model_profile()` — Returns default ModelProfile
+  - `load_model_profile()` — Loads from ModelProfile, YAML file, dict, or None
+  - Supports single-profile and multi-profile YAML formats
+  - Handles missing fields with defaults
+  - Graceful error handling for invalid files
+  
+- **`noctyl/cli.py`** — CLI command interface
+  - `main()` — Main CLI entry point
+  - `noctyl estimate` command with `--profile` and `--output` flags
+  - JSON output to stdout or file
+  - Warnings printed to stderr
+  - Exit codes: 0 on success, 1 on errors/warnings
+
+**Modified modules:**
+- **`noctyl/ingestion/pipeline.py`** — Updated with estimate and profile parameters
+  - Added `estimate: bool = False` parameter
+  - Added `profile: ModelProfile | str | Path | dict | None = None` parameter
+  - `estimate=True` automatically sets `enriched=True` (Phase 3 requires Phase 2)
+  - Integrates TokenModeler for Phase 3 estimation
+  - Merges TokenModeler warnings with pipeline warnings
+  - Backward compatible: existing callers unaffected
+
+- **`noctyl/estimation/__init__.py`** — Exports profile loader functions
+  - Added `default_model_profile` and `load_model_profile` to exports
+
+- **`pyproject.toml`** — Added dependencies and console scripts
+  - Added `pyyaml>=6` dependency
+  - Added `[project.scripts]` section with `noctyl = "noctyl.cli:main"`
+
+### Tests
+
+- **`tests/test_profile_loader.py`** — 18 unit tests covering:
+  - Default profile creation
+  - ModelProfile passthrough
+  - Dict construction (with/without pricing, nested pricing)
+  - YAML file loading (single/multi-profile, missing fields, invalid syntax)
+  - Error handling (invalid file, empty file, missing fields, invalid types)
+  - Deterministic output
+  
+- **`tests/test_pipeline_integration.py`** — 22 integration tests covering:
+  - Backward compatibility (estimate=False, enriched=True)
+  - Estimate mode (schema 3.0 output)
+  - Profile loading (default, custom ModelProfile, YAML file, dict)
+  - Schema 3.0 structure validation
+  - Warnings merging
+  - Error handling (empty directory, no LangGraph files, profile load errors)
+  - Multiple graphs in same file
+  - Deterministic output
+  - Golden fixtures integration
+  - End-to-end profile YAML loading
+  - Backward compatibility verification
+  
+- **`tests/test_cli.py`** — 15 CLI tests covering:
+  - Basic estimate command
+  - Profile flag (`--profile`)
+  - Output flag (`--output`)
+  - Missing/invalid path handling
+  - Invalid profile file handling
+  - JSON output validation
+  - Warnings to stderr
+  - Help flag (`--help`)
+  - Exit codes (0 on success, 1 on warnings/errors)
+  - Empty results handling
+  - End-to-end CLI on golden fixtures
+
+**Total:** 55 new tests, all passing.
+
+### CLI Usage
+
+**Command syntax:**
+```bash
+noctyl estimate <path> [--profile <file>] [--output <file>]
+```
+
+**Examples:**
+```bash
+# Basic usage (default profile)
+noctyl estimate ./my_project
+
+# With custom profile
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml
+
+# Save to file
+noctyl estimate ./my_project --output estimates.json
+
+# With profile and output file
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml --output estimates.json
+```
+
+**Profile File Format (YAML):**
+```yaml
+# Single profile format
+name: gpt-4o
+expansion_factor: 1.2
+output_ratio: 0.6
+pricing:
+  input_per_1k: 0.005
+  output_per_1k: 0.015
+
+# Multi-profile format (first profile used)
+model_profiles:
+  gpt-4o:
+    expansion_factor: 1.2
+    output_ratio: 0.6
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
+  claude-3:
+    expansion_factor: 1.1
+    output_ratio: 0.5
+    pricing:
+      input_per_1k: 0.003
+      output_per_1k: 0.015
+```
+
+### Features
+
+- **YAML profile loading:** Supports single-profile and multi-profile YAML files
+- **Default profile fallback:** Uses default profile when none provided or on load errors
+- **Schema 3.0 output from pipeline:** `run_pipeline_on_directory(path, estimate=True)` produces schema 3.0 dicts
+- **CLI estimate command:** Command-line interface for token estimation
+- **Backward compatibility maintained:** Existing callers with `enriched=True` unaffected
+- **Error handling:** Profile loading errors don't crash pipeline (uses default with warning)
+- **Deterministic output:** JSON output with sorted keys for reproducibility
+
+### References
+
+- Implementation: `noctyl/estimation/profile_loader.py`, `noctyl/cli.py`, `noctyl/ingestion/pipeline.py`
+- Tests: `tests/test_profile_loader.py`, `tests/test_pipeline_integration.py`, `tests/test_cli.py`
+- Related: `noctyl/estimation/token_modeler.py` (TokenModeler), `noctyl/estimation/serializer.py` (workflow_estimate_to_dict)
+- Documentation: `docs/flow-diagrams.md` (Section 14a: CLI Estimate Command Flow)
+
+------------------------------------------------------------------------
