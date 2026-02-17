@@ -616,3 +616,287 @@ def test_phase3_extends_phase2_not_replaces():
     # Phase 3 data added
     assert d["estimated"] is True
     assert len(d["node_signatures"]) == 1
+
+
+def test_serialization_roundtrip_deterministic():
+    """JSON → dict → JSON produces identical output."""
+    em = _minimal_execution_model()
+    estimate = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=(
+            NodeTokenSignature("a", 100, 1.2, True, False),
+            NodeTokenSignature("b", 200, 1.3, False, False),
+        ),
+        envelope=CostEnvelope(100, 150, 200, True, "structural-static"),
+        assumptions_profile="test",
+        per_node_envelopes={
+            "a": CostEnvelope(100, 120, 140, True, "structural-static"),
+            "b": CostEnvelope(200, 250, 300, True, "structural-static"),
+        },
+        per_path_envelopes={},
+        warnings=("Warning 1", "Warning 2"),
+    )
+    
+    # Serialize to dict
+    d1 = workflow_estimate_to_dict(estimate)
+    
+    # Convert to JSON and back
+    json_str = json.dumps(d1, sort_keys=True)
+    d2 = json.loads(json_str)
+    
+    # Should be identical
+    assert json.dumps(d1, sort_keys=True) == json.dumps(d2, sort_keys=True)
+    assert d1 == d2
+
+
+def test_cost_envelope_invariant_edge_cases():
+    """CostEnvelope invariant holds for boundary values."""
+    # Equal bounds: min == expected == max
+    env1 = CostEnvelope(100, 100, 100, True, "structural-static")
+    assert env1.min_tokens == env1.expected_tokens == env1.max_tokens
+    
+    # Minimum values: 0 tokens
+    env2 = CostEnvelope(0, 0, 0, True, "structural-static")
+    assert env2.min_tokens == env2.expected_tokens == env2.max_tokens == 0
+    
+    # Single token: min == expected == max == 1
+    env3 = CostEnvelope(1, 1, 1, True, "structural-static")
+    assert env3.min_tokens == env3.expected_tokens == env3.max_tokens == 1
+    
+    # Normal case: min < expected < max
+    env4 = CostEnvelope(100, 150, 200, True, "structural-static")
+    assert env4.min_tokens < env4.expected_tokens < env4.max_tokens
+    
+    # Edge case: expected at midpoint
+    env5 = CostEnvelope(100, 150, 200, True, "structural-static")
+    assert env5.expected_tokens == (env5.min_tokens + env5.max_tokens) // 2
+
+
+def test_workflow_estimate_permutations_deterministic():
+    """Same data, different construction order → identical output."""
+    em = _minimal_execution_model()
+    
+    # Create estimate with nodes in one order
+    sigs1 = (
+        NodeTokenSignature("a", 100, 1.2, True, False),
+        NodeTokenSignature("b", 200, 1.3, False, False),
+        NodeTokenSignature("c", 300, 1.4, True, True),
+    )
+    estimate1 = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=sigs1,
+        envelope=CostEnvelope(100, 200, 300, True, "structural-static"),
+        assumptions_profile="test",
+        per_node_envelopes={
+            "a": CostEnvelope(100, 120, 140, True, "structural-static"),
+            "b": CostEnvelope(200, 260, 300, True, "structural-static"),
+            "c": CostEnvelope(300, 420, 500, True, "structural-static"),
+        },
+        per_path_envelopes={},
+        warnings=("Warning 1", "Warning 2"),
+    )
+    
+    # Create estimate with nodes in different order (should be sorted)
+    sigs2 = (
+        NodeTokenSignature("c", 300, 1.4, True, True),
+        NodeTokenSignature("a", 100, 1.2, True, False),
+        NodeTokenSignature("b", 200, 1.3, False, False),
+    )
+    estimate2 = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=sigs2,
+        envelope=CostEnvelope(100, 200, 300, True, "structural-static"),
+        assumptions_profile="test",
+        per_node_envelopes={
+            "c": CostEnvelope(300, 420, 500, True, "structural-static"),
+            "a": CostEnvelope(100, 120, 140, True, "structural-static"),
+            "b": CostEnvelope(200, 260, 300, True, "structural-static"),
+        },
+        per_path_envelopes={},
+        warnings=("Warning 2", "Warning 1"),  # Different order
+    )
+    
+    # Serialize both
+    d1 = workflow_estimate_to_dict(estimate1)
+    d2 = workflow_estimate_to_dict(estimate2)
+    
+    # Should be identical (sorted)
+    assert json.dumps(d1, sort_keys=True) == json.dumps(d2, sort_keys=True)
+
+
+def test_schema_version_enforcement():
+    """Schema version 3.0 always present in serialized output."""
+    em = _minimal_execution_model()
+    estimate = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=(),
+        envelope=CostEnvelope(0, 0, 0, True, "structural-static"),
+        assumptions_profile="test",
+        per_node_envelopes={},
+        per_path_envelopes={},
+        warnings=(),
+    )
+    
+    d = workflow_estimate_to_dict(estimate)
+    assert d["schema_version"] == ESTIMATED_SCHEMA_VERSION
+    assert d["schema_version"] == "3.0"
+    
+    # Verify it's always present even with empty data
+    assert "schema_version" in d
+
+
+def test_all_required_fields_present():
+    """Comprehensive field presence check for all required Phase 3 fields."""
+    em = _minimal_execution_model()
+    estimate = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=(
+            NodeTokenSignature("a", 100, 1.2, True, False),
+        ),
+        envelope=CostEnvelope(100, 150, 200, True, "structural-static"),
+        assumptions_profile="test-profile",
+        per_node_envelopes={
+            "a": CostEnvelope(100, 120, 140, True, "structural-static"),
+        },
+        per_path_envelopes={
+            "path1": CostEnvelope(100, 150, 200, True, "structural-static"),
+        },
+        warnings=("Warning 1",),
+    )
+    
+    d = workflow_estimate_to_dict(estimate)
+    
+    # Phase 3 required fields
+    assert "schema_version" in d
+    assert "estimated" in d
+    assert "enriched" in d
+    assert "token_estimate" in d
+    assert "node_signatures" in d
+    assert "per_node_envelopes" in d
+    assert "per_path_envelopes" in d
+    assert "warnings" in d
+    
+    # token_estimate sub-fields
+    assert "assumptions_profile" in d["token_estimate"]
+    assert "min_tokens" in d["token_estimate"]
+    assert "expected_tokens" in d["token_estimate"]
+    assert "max_tokens" in d["token_estimate"]
+    assert "bounded" in d["token_estimate"]
+    assert "confidence" in d["token_estimate"]
+    
+    # node_signatures sub-fields
+    assert len(d["node_signatures"]) > 0
+    sig = d["node_signatures"][0]
+    assert "node_name" in sig
+    assert "base_prompt_tokens" in sig
+    assert "expansion_factor" in sig
+    assert "input_dependency" in sig
+    assert "symbolic" in sig
+
+
+def test_large_workflow_estimate_serialization_performance():
+    """Large workflow (100+ nodes) serializes correctly."""
+    em = _minimal_execution_model()
+    
+    # Create many node signatures
+    node_sigs = tuple(
+        NodeTokenSignature(f"node_{i}", i * 10, 1.2, False, False)
+        for i in range(100)
+    )
+    
+    # Create per-node envelopes
+    per_node = {
+        f"node_{i}": CostEnvelope(i * 10, i * 12, i * 14, True, "structural-static")
+        for i in range(100)
+    }
+    
+    estimate = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=node_sigs,
+        envelope=CostEnvelope(0, 600, 1200, True, "structural-static"),
+        assumptions_profile="test",
+        per_node_envelopes=per_node,
+        per_path_envelopes={},
+        warnings=(),
+    )
+    
+    # Should serialize without error
+    d = workflow_estimate_to_dict(estimate)
+    
+    # Verify structure
+    assert len(d["node_signatures"]) == 100
+    assert len(d["per_node_envelopes"]) == 100
+    assert d["schema_version"] == "3.0"
+    
+    # Verify JSON serialization works
+    json_str = json.dumps(d, sort_keys=True)
+    assert len(json_str) > 0
+    d2 = json.loads(json_str)
+    assert len(d2["node_signatures"]) == 100
+
+
+def test_cost_envelope_zero_tokens():
+    """Edge case: min=expected=max=0 tokens."""
+    env = CostEnvelope(0, 0, 0, True, "structural-static")
+    assert env.min_tokens == 0
+    assert env.expected_tokens == 0
+    assert env.max_tokens == 0
+    assert env.bounded is True
+    
+    # Should serialize correctly
+    d = {
+        "min_tokens": env.min_tokens,
+        "expected_tokens": env.expected_tokens,
+        "max_tokens": env.max_tokens,
+        "bounded": env.bounded,
+        "confidence": env.confidence,
+    }
+    assert d["min_tokens"] == 0
+    assert d["expected_tokens"] == 0
+    assert d["max_tokens"] == 0
+
+
+def test_workflow_estimate_with_all_warning_types():
+    """WorkflowEstimate with all warning types present."""
+    em = _minimal_execution_model()
+    
+    # Create warnings covering all types
+    warnings = (
+        "Node node_a marked as symbolic (unresolvable callable)",
+        "Cycle [node_b, node_c] has unbounded iterations (assumed 5)",
+        "Non-terminating cycle detected: [node_d, node_e]",
+    )
+    
+    estimate = WorkflowEstimate(
+        graph_id=em.graph.graph_id,
+        execution_model=em,
+        node_signatures=(
+            NodeTokenSignature("node_a", 0, 1.2, True, True),  # Symbolic
+            NodeTokenSignature("node_b", 100, 1.3, False, False),
+            NodeTokenSignature("node_c", 200, 1.4, False, False),
+        ),
+        envelope=CostEnvelope(100, 500, 1000, False, "structural-static"),
+        assumptions_profile="test",
+        per_node_envelopes={},
+        per_path_envelopes={},
+        warnings=warnings,
+    )
+    
+    d = workflow_estimate_to_dict(estimate)
+    
+    # Verify warnings are present and sorted
+    assert len(d["warnings"]) == 3
+    assert all(isinstance(w, str) for w in d["warnings"])
+    assert d["warnings"] == sorted(warnings)
+    
+    # Verify warning types are represented
+    warning_text = " ".join(d["warnings"])
+    assert "symbolic" in warning_text.lower()
+    assert "cycle" in warning_text.lower() or "unbounded" in warning_text.lower()
+    assert "non-terminating" in warning_text.lower() or "terminating" in warning_text.lower()

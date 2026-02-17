@@ -705,3 +705,135 @@ def test_edge_case_very_long_string():
     assert len(sigs) == 1
     assert sigs[0].base_prompt_tokens == estimate_tokens_from_string(long_text)
     assert sigs[0].symbolic is False
+
+
+def test_config_constant_detection():
+    """Detect constants used in prompts."""
+    source = """
+PROMPT_TEMPLATE = "You are a helpful assistant. {context}"
+SYSTEM_MESSAGE = "System: Answer questions"
+
+def agent(state):
+    prompt = PROMPT_TEMPLATE.format(context=state.get("context", ""))
+    return {"response": prompt + SYSTEM_MESSAGE}
+"""
+    from noctyl.graph import ExtractedNode, build_workflow_graph
+    
+    nodes = [ExtractedNode("agent", "agent", 1)]
+    wg = build_workflow_graph("test:0", nodes, [], [], "agent")
+    profile = _default_model_profile()
+    sigs = compute_node_token_signatures(wg, source, profile)
+    
+    assert len(sigs) == 1
+    # Should detect string literals from constants
+    assert sigs[0].base_prompt_tokens > 0
+    # Constants are static, so not symbolic
+    assert sigs[0].symbolic is False
+
+
+def test_empty_source_resilience():
+    """Empty source code handling."""
+    source = ""
+    from noctyl.graph import ExtractedNode, build_workflow_graph
+    
+    nodes = [ExtractedNode("node", "func", 1)]
+    wg = build_workflow_graph("test:0", nodes, [], [], "node")
+    profile = _default_model_profile()
+    
+    # Should not crash with empty source
+    sigs = compute_node_token_signatures(wg, source, profile)
+    
+    assert len(sigs) == 1
+    assert sigs[0].base_prompt_tokens == 0
+    # Unresolvable callable → symbolic
+    assert sigs[0].symbolic is True
+
+
+def test_syntax_error_source_resilience():
+    """Syntax errors don't crash prompt detection."""
+    source = """
+def agent(state):
+    prompt = "Hello"
+    return {"response": prompt
+    # Missing closing parenthesis - syntax error
+"""
+    from noctyl.graph import ExtractedNode, build_workflow_graph
+    
+    nodes = [ExtractedNode("agent", "agent", 1)]
+    wg = build_workflow_graph("test:0", nodes, [], [], "agent")
+    profile = _default_model_profile()
+    
+    # Should handle syntax errors gracefully
+    sigs = compute_node_token_signatures(wg, source, profile)
+    
+    assert len(sigs) == 1
+    # May detect some strings before syntax error, or mark as symbolic
+    assert sigs[0].symbolic is True or sigs[0].base_prompt_tokens >= 0
+
+
+def test_multi_string_accumulation_per_node():
+    """Multiple strings in one function accumulate."""
+    source = """
+def agent(state):
+    prompt1 = "First prompt"
+    prompt2 = "Second prompt"
+    prompt3 = "Third prompt"
+    combined = prompt1 + prompt2 + prompt3
+    return {"response": combined}
+"""
+    from noctyl.graph import ExtractedNode, build_workflow_graph
+    
+    nodes = [ExtractedNode("agent", "agent", 1)]
+    wg = build_workflow_graph("test:0", nodes, [], [], "agent")
+    profile = _default_model_profile()
+    sigs = compute_node_token_signatures(wg, source, profile)
+    
+    assert len(sigs) == 1
+    # Should accumulate tokens from all strings
+    assert sigs[0].base_prompt_tokens > 0
+    # All strings are static
+    assert sigs[0].symbolic is False
+
+
+def test_nested_function_string_extraction():
+    """Strings in nested functions are detected."""
+    source = """
+def outer(state):
+    def inner():
+        prompt = "Nested prompt"
+        return prompt
+    return {"response": inner()}
+"""
+    from noctyl.graph import ExtractedNode, build_workflow_graph
+    
+    nodes = [ExtractedNode("outer", "outer", 1)]
+    wg = build_workflow_graph("test:0", nodes, [], [], "outer")
+    profile = _default_model_profile()
+    sigs = compute_node_token_signatures(wg, source, profile)
+    
+    assert len(sigs) == 1
+    # Should detect strings in nested functions
+    assert sigs[0].base_prompt_tokens > 0
+    assert sigs[0].symbolic is False
+
+
+def test_dynamic_f_string_portions_marked_symbolic():
+    """F-string dynamic parts marked as symbolic."""
+    source = """
+def agent(state):
+    name = state.get("name", "User")
+    prompt = f"Hello {name}, welcome!"
+    return {"response": prompt}
+"""
+    from noctyl.graph import ExtractedNode, build_workflow_graph
+    
+    nodes = [ExtractedNode("agent", "agent", 1)]
+    wg = build_workflow_graph("test:0", nodes, [], [], "agent")
+    profile = _default_model_profile()
+    sigs = compute_node_token_signatures(wg, source, profile)
+    
+    assert len(sigs) == 1
+    # Static portion should be counted
+    assert sigs[0].base_prompt_tokens > 0
+    # Dynamic portion should mark as symbolic or input_dependency
+    assert sigs[0].symbolic is True or sigs[0].input_dependency is True

@@ -252,3 +252,112 @@ def test_load_model_profile_unsupported_type():
     """Unsupported source type."""
     with pytest.raises(TypeError):
         load_model_profile(123)  # int not supported
+
+
+def test_profile_loader_error_handling_comprehensive():
+    """Comprehensive error handling for all error types."""
+    # FileNotFoundError
+    with pytest.raises(FileNotFoundError):
+        load_model_profile("/nonexistent/path/profile.yaml")
+    
+    # Invalid YAML syntax
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write("invalid: yaml: syntax: [error\n")
+        yaml_path = f.name
+    
+    try:
+        with pytest.raises((ValueError, Exception)):
+            load_model_profile(yaml_path)
+    finally:
+        Path(yaml_path).unlink()
+    
+    # Missing required field
+    data_missing = {
+        "name": "test",
+        # Missing expansion_factor
+    }
+    with pytest.raises(ValueError, match="expansion_factor"):
+        load_model_profile(data_missing)
+    
+    # Invalid type
+    data_invalid = {
+        "name": "test",
+        "expansion_factor": "not-a-number",
+    }
+    with pytest.raises(ValueError, match="number"):
+        load_model_profile(data_invalid)
+    
+    # Empty YAML file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml_path = f.name
+    
+    try:
+        with pytest.raises(ValueError, match="empty"):
+            load_model_profile(yaml_path)
+    finally:
+        Path(yaml_path).unlink()
+
+
+def test_profile_loader_deterministic_permutations():
+    """Same data, different construction order → identical profile."""
+    # Dict with fields in different orders
+    data1 = {
+        "name": "test",
+        "expansion_factor": 1.4,
+        "output_ratio": 0.7,
+        "pricing_input_per_1k": 0.01,
+        "pricing_output_per_1k": 0.02,
+    }
+    data2 = {
+        "pricing_output_per_1k": 0.02,
+        "pricing_input_per_1k": 0.01,
+        "output_ratio": 0.7,
+        "expansion_factor": 1.4,
+        "name": "test",
+    }
+    
+    profile1 = load_model_profile(data1)
+    profile2 = load_model_profile(data2)
+    
+    # Should be identical
+    assert profile1 == profile2
+    assert profile1.name == profile2.name
+    assert profile1.expansion_factor == profile2.expansion_factor
+    assert profile1.output_ratio == profile2.output_ratio
+
+
+def test_profile_loader_large_yaml_file():
+    """Multi-profile YAML with many profiles."""
+    # Create YAML with 10 profiles
+    profiles = {}
+    for i in range(10):
+        profiles[f"profile_{i}"] = {
+            "expansion_factor": 1.0 + (i * 0.1),
+            "output_ratio": 0.5 + (i * 0.05),
+            "pricing": {
+                "input_per_1k": 0.001 * i,
+                "output_per_1k": 0.002 * i,
+            },
+        }
+    
+    yaml_content = "model_profiles:\n"
+    for name, data in profiles.items():
+        yaml_content += f"  {name}:\n"
+        yaml_content += f"    expansion_factor: {data['expansion_factor']}\n"
+        yaml_content += f"    output_ratio: {data['output_ratio']}\n"
+        yaml_content += "    pricing:\n"
+        yaml_content += f"      input_per_1k: {data['pricing']['input_per_1k']}\n"
+        yaml_content += f"      output_per_1k: {data['pricing']['output_per_1k']}\n"
+    
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml_content)
+        yaml_path = f.name
+    
+    try:
+        # Should load first profile
+        profile = load_model_profile(yaml_path)
+        assert profile.name == "profile_0"
+        assert profile.expansion_factor == 1.0
+        assert profile.output_ratio == 0.5
+    finally:
+        Path(yaml_path).unlink()

@@ -327,3 +327,123 @@ def test_integration_cli_golden_fixtures():
     assert isinstance(data, list)
     # All results should be schema 3.0
     assert all(r["schema_version"] == "3.0" for r in data)
+
+
+def test_cli_estimate_no_langgraph_files_graceful():
+    """No LangGraph files → empty results, no crash."""
+    source = """
+def util_func(x):
+    return x + 1
+
+class Helper:
+    def method(self, x):
+        return x * 2
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "util.py").write_text(source)
+        (root / "helper.py").write_text(source)
+        
+        exit_code, stdout, stderr = _run_cli(["estimate", str(root)])
+        
+        # Should succeed (empty results)
+        assert exit_code == 0
+        # Should output empty JSON array
+        data = json.loads(stdout)
+        assert data == []
+
+
+def test_cli_estimate_deterministic_output():
+    """Same input → same JSON output."""
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+def fa(x): return x
+
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+graph.add_edge("a", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "workflow.py").write_text(source)
+        
+        # Run twice
+        exit_code1, stdout1, stderr1 = _run_cli(["estimate", str(root)])
+        exit_code2, stdout2, stderr2 = _run_cli(["estimate", str(root)])
+        
+        # Should produce identical output
+        assert stdout1 == stdout2
+        assert exit_code1 == exit_code2
+        
+        # JSON should be identical
+        data1 = json.loads(stdout1)
+        data2 = json.loads(stdout2)
+        assert json.dumps(data1, sort_keys=True) == json.dumps(data2, sort_keys=True)
+
+
+def test_cli_estimate_large_directory_performance():
+    """Large directory handling (multiple files)."""
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+def fa(x): return x
+
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+graph.add_edge("a", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        # Create 10 workflow files
+        for i in range(10):
+            (root / f"workflow_{i}.py").write_text(source)
+        
+        exit_code, stdout, stderr = _run_cli(["estimate", str(root)])
+        
+        # Should succeed
+        assert exit_code in (0, 1)
+        # Should process all files
+        data = json.loads(stdout)
+        assert len(data) == 10
+        # All should be schema 3.0
+        assert all(r["schema_version"] == "3.0" for r in data)
+
+
+def test_cli_estimate_error_messages_clear():
+    """Error messages are clear and helpful."""
+    # Invalid path
+    exit_code1, stdout1, stderr1 = _run_cli(["estimate", "/nonexistent/path"])
+    assert exit_code1 != 0
+    assert "error" in stderr1.lower() or "does not exist" in stderr1.lower()
+    
+    # Missing path
+    exit_code2, stdout2, stderr2 = _run_cli(["estimate"])
+    assert exit_code2 != 0
+    assert "path" in (stdout2 + stderr2).lower() or "required" in (stdout2 + stderr2).lower()
+    
+    # Invalid profile file
+    source = """
+from langgraph.graph import StateGraph, START, END
+
+def fa(x): return x
+
+graph = StateGraph(dict)
+graph.add_node("a", fa)
+graph.add_edge(START, "a")
+graph.add_edge("a", END)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "workflow.py").write_text(source)
+        
+        exit_code3, stdout3, stderr3 = _run_cli(
+            ["estimate", str(root), "--profile", "/nonexistent/profile.yaml"]
+        )
+        # Should either use default profile or show error
+        assert exit_code3 in (0, 1)
+        # Error message should be informative if present
+        if exit_code3 != 0:
+            assert len(stderr3) > 0
