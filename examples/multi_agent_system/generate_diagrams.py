@@ -6,8 +6,8 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from noctyl.graph import workflow_dict_to_mermaid
-from noctyl.ingestion import run_pipeline_on_directory
+from noctyl_scout.graph import workflow_dict_to_mermaid
+from noctyl_scout.ingestion import run_pipeline_on_directory
 
 if __name__ == "__main__":
     example_dir = Path(__file__).parent

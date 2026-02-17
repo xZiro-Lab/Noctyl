@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import ast
 
-from noctyl.graph.nodes import ExtractedNode
-from noctyl.ingestion.receiver_resolution import build_alias_map, resolve_receiver
-from noctyl.ingestion.stategraph_tracker import TrackedStateGraph
+from noctyl_scout.graph.nodes import ExtractedNode
+from noctyl_scout.ingestion.receiver_resolution import build_alias_map, resolve_receiver
+from noctyl_scout.ingestion.stategraph_tracker import TrackedStateGraph
 
 
 def _node_name_from_arg(node: ast.expr) -> str:

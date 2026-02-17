@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from noctyl.ingestion import DEFAULT_IGNORE_DIRS, discover_python_files
+from noctyl_scout.ingestion import DEFAULT_IGNORE_DIRS, discover_python_files
 
 
 def test_default_ignores():

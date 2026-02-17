@@ -2,7 +2,7 @@
 
 import json
 
-from noctyl.graph import (
+from noctyl_scout.graph import (
     ExtractedConditionalEdge,
     ExtractedEdge,
     ExtractedNode,

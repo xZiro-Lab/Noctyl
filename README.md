@@ -51,10 +51,12 @@ Noctyl answers:
   - **GraphAnalyzer** and **ExecutionModel** for control-flow, cycles, metrics, node annotations, and structural risks
   - Optional `enriched=True` pipeline output (schema 2.0); see `docs/phase/phase2.md` and `docs/flow-diagrams.md`
 
-- 📐 **Static Token Estimation**
-  - Prompt size analysis
-  - Memory replay modeling
-  - Loop and retry expansion
+- 📐 **Static Token Estimation (Phase 3)**
+  - Token envelope estimation (min/expected/max ranges)
+  - Node-level token signatures with prompt size detection
+  - Model profiles for user-declared assumptions
+  - Cost envelope computation for workflows, nodes, and paths
+  - Optional `estimate=True` pipeline output (schema 3.0); see `docs/phase/phase3.md` and `docs/flow-diagrams.md`
 
 - ⚠️ **Risk Detection**
   - Unbounded loops
@@ -88,6 +90,46 @@ Noctyl runs **before execution**, not during or after.
 curl -fsSL https://raw.githubusercontent.com/xZiro-Lab/Noctyl/main/install.sh | bash
 ```
 
+### CLI Usage
+
+After installation, use the `noctyl estimate` command to estimate token usage:
+
+```bash
+# Basic usage (default profile)
+noctyl estimate ./my_project
+
+# With custom model profile
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml
+
+# Save output to file
+noctyl estimate ./my_project --output estimates.json
+
+# With profile and output file
+noctyl estimate ./my_project --profile profiles/gpt-4o.yaml --output estimates.json
+```
+
+**Profile File Format (YAML):**
+```yaml
+# Single profile format
+name: gpt-4o
+expansion_factor: 1.2
+output_ratio: 0.6
+pricing:
+  input_per_1k: 0.005
+  output_per_1k: 0.015
+
+# Multi-profile format (first profile used)
+model_profiles:
+  gpt-4o:
+    expansion_factor: 1.2
+    output_ratio: 0.6
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.015
+```
+
+**Output:** The CLI outputs JSON with schema 3.0 format, including token estimates, node signatures, per-node and per-path envelopes, and warnings. See `docs/phase/phase3.md` for details.
+
 ---
 
 ## Project structure
@@ -105,7 +147,7 @@ noctyl/
 │   │
 │   ├── ingestion/                  # Repo scanning, detection & extraction (Phase 1)
 │   │   ├── __init__.py
-│   │   ├── pipeline.py             # run_pipeline_on_directory (Phase 1 + Phase 2)
+│   │   ├── pipeline.py             # run_pipeline_on_directory (Phase 1 + Phase 2 + Phase 3)
 │   │   ├── repo_scanner.py         # discover_python_files + default ignores
 │   │   ├── langgraph_detector.py   # has_langgraph_import / file_contains_langgraph
 │   │   ├── stategraph_tracker.py   # track StateGraph instances per file
@@ -129,11 +171,26 @@ noctyl/
 │       ├── metrics.py              # Structural metrics (counts, paths, branching)
 │       ├── node_annotation.py      # Per-node semantic annotation from AST
 │       └── structural_risk.py      # Risk detection (unreachable, dead-ends, non-terminating)
+│   │
+│   ├── estimation/                  # Token estimation (Phase 3)
+│       ├── __init__.py
+│       ├── data_model.py           # NodeTokenSignature, ModelProfile, CostEnvelope, WorkflowEstimate
+│       ├── serializer.py           # workflow_estimate_to_dict (schema 3.0)
+│       ├── prompt_detection.py    # AST-based prompt string detection
+│       ├── propagation.py          # Token propagation with topological traversal
+│       ├── loop_amplification.py  # Loop amplification using DetectedCycle data
+│       ├── branch_envelope.py     # Branch envelope computation for conditional paths
+│       ├── aggregation.py         # Workflow-level envelope aggregation
+│       ├── token_modeler.py       # TokenModeler class orchestrating the pipeline
+│       └── profile_loader.py      # YAML profile loading and defaults
+│   │
+│   └── cli.py                       # CLI command interface (noctyl estimate)
 │
-├── tests/                          # 266 tests (pytest)
+├── tests/                          # 493+ tests (pytest)
 │   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
 │   ├── test_analysis.py            # Phase 2 analysis module tests
 │   ├── test_execution_model.py     # ExecutionModel serialization & immutability tests
+│   ├── test_estimation_model.py    # Phase 3 estimation data model & serializer tests
 │   ├── test_golden.py              # Golden fixture integration tests
 │   ├── test_golden_mermaid.py      # Mermaid generation for golden fixtures
 │   ├── test_ingestion_integration.py  # Full pipeline integration tests
@@ -147,13 +204,24 @@ noctyl/
 │   ├── test_conditional_edges.py   # Conditional edge extraction tests
 │   ├── test_entry_point.py         # Entry point detection tests
 │   ├── test_repo_scanner.py        # File discovery tests
-│   └── test_example_multi_agent.py # Multi-agent example tests
+│   ├── test_example_multi_agent.py # Multi-agent example tests
+│   ├── test_prompt_detection.py    # Phase 3 prompt detection & token signature tests
+│   ├── test_propagation.py         # Phase 3 token propagation tests
+│   ├── test_loop_amplification.py  # Phase 3 loop amplification tests
+│   ├── test_branch_envelope.py    # Phase 3 branch envelope tests
+│   ├── test_aggregation.py         # Phase 3 workflow aggregation tests
+│   ├── test_token_modeler.py       # Phase 3 TokenModeler integration tests
+│   ├── test_profile_loader.py       # Phase 3 profile loader tests
+│   ├── test_pipeline_integration.py  # Phase 3 pipeline integration tests
+│   ├── test_cli.py                  # CLI tests
+│   └── test_phase3_comprehensive.py # Phase 3 comprehensive integration tests
 │
 ├── docs/
 │   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
 │   └── phase/
 │       ├── phase1-scope.md         # Phase 1 scope & design
-│       └── phase2.md               # Phase 2 design & implementation status
+│       ├── phase2.md               # Phase 2 design & implementation status
+│       └── phase3.md               # Phase 3 design & implementation status
 │
 └── .github/
     └── ISSUE_TEMPLATE/             # Phase task issue templates
@@ -165,8 +233,15 @@ noctyl/
 
 **Phase 1** (LangGraph ingestion pipeline) — Implemented and tested.
 **Phase 2** (Static graph analysis: control-flow, metrics, annotations, risks) — Implemented and tested.
+**Phase 3** (Static token estimation) — Implemented and tested.
+  - **Task 1** (Data model and schema 3.0 serializer) — Implemented and tested ✓
+  - **Task 2** (Prompt size detection) — Implemented and tested ✓
+  - **Task 3** (TokenModeler: propagation, loops, branches, aggregation) — Implemented and tested ✓
+  - **Task 4** (Pipeline integration & CLI) — Implemented and tested ✓
+  - **Task 5** (Comprehensive testing) — Implemented and tested ✓
+  - **Task 6** (Documentation) — Implemented ✓
 
-266 tests across 16 test files, all passing. APIs and behavior may evolve as new phases are added.
+493+ tests across 27 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

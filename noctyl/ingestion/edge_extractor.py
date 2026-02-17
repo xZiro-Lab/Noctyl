@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import ast
 
-from noctyl.graph.edges import ExtractedEdge, ExtractedConditionalEdge
-from noctyl.ingestion.receiver_resolution import build_alias_map, resolve_receiver
-from noctyl.ingestion.stategraph_tracker import TrackedStateGraph
+from noctyl_scout.graph.edges import ExtractedEdge, ExtractedConditionalEdge
+from noctyl_scout.ingestion.receiver_resolution import build_alias_map, resolve_receiver
+from noctyl_scout.ingestion.stategraph_tracker import TrackedStateGraph
 
 
 def _edge_arg_to_string(node: ast.expr) -> str:

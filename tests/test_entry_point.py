@@ -1,7 +1,7 @@
 """Tests for entry point detection (set_entry_point and fallback from add_edge(START, ...))."""
 
-from noctyl.ingestion.edge_extractor import extract_entry_points
-from noctyl.ingestion.stategraph_tracker import track_stategraph_instances
+from noctyl_scout.ingestion.edge_extractor import extract_entry_points
+from noctyl_scout.ingestion.stategraph_tracker import track_stategraph_instances
 
 
 def _extract_entry(source: str, file_path: str = "file.py"):

@@ -1,8 +1,8 @@
 """Tests for add_node extraction."""
 
-from noctyl.graph.nodes import ExtractedNode
-from noctyl.ingestion.node_extractor import extract_add_node_calls
-from noctyl.ingestion.stategraph_tracker import track_stategraph_instances
+from noctyl_scout.graph.nodes import ExtractedNode
+from noctyl_scout.ingestion.node_extractor import extract_add_node_calls
+from noctyl_scout.ingestion.stategraph_tracker import track_stategraph_instances
 
 
 def _extract(source: str, file_path: str = "file.py"):

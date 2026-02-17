@@ -1,8 +1,8 @@
 """Tests for add_edge extraction."""
 
-from noctyl.graph.edges import ExtractedEdge
-from noctyl.ingestion.edge_extractor import extract_add_edge_calls
-from noctyl.ingestion.stategraph_tracker import track_stategraph_instances
+from noctyl_scout.graph.edges import ExtractedEdge
+from noctyl_scout.ingestion.edge_extractor import extract_add_edge_calls
+from noctyl_scout.ingestion.stategraph_tracker import track_stategraph_instances
 
 
 def _extract_edges(source: str, file_path: str = "file.py"):

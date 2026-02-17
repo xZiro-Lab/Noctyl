@@ -7,8 +7,8 @@ and visualized correctly.
 
 from pathlib import Path
 
-from noctyl.graph import workflow_dict_to_mermaid
-from noctyl.ingestion import run_pipeline_on_directory
+from noctyl_scout.graph import workflow_dict_to_mermaid
+from noctyl_scout.ingestion import run_pipeline_on_directory
 
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "multi_agent_system"
 
