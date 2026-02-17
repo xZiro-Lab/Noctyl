@@ -396,4 +396,103 @@ flowchart TB
 
 ---
 
+## 13. Phase 3: TokenModeler and cost envelope estimation
+
+Phase 3 adds the **TokenModeler** in `noctyl/estimation`: it takes an **ExecutionModel** (from Phase 2), a **ModelProfile**, and optional source code, computes node token signatures, propagates token quantities, handles loop amplification and branch envelopes, and returns a **WorkflowEstimate**. The WorkflowEstimate holds the ExecutionModel reference plus `node_signatures`, `envelope` (workflow-level cost envelope), `per_node_envelopes`, `per_path_envelopes`, and `warnings`. **workflow_estimate_to_dict(estimate)** produces a deterministic JSON-serializable dict with `schema_version` 3.0, `estimated: true`, and `enriched: true` (includes all Phase 2 data plus estimation fields).
+
+```mermaid
+flowchart LR
+  subgraph phase2 [Phase 2]
+    EM[ExecutionModel]
+    EM -->|execution_model_to_dict| EnrichedDict[enriched dict schema_version 2.0]
+  end
+  subgraph phase3 [Phase 3]
+    TokenModeler[TokenModeler.estimate]
+    WE[WorkflowEstimate]
+    TokenModeler -->|returns| WE
+    WE -->|workflow_estimate_to_dict| EstimatedDict[estimated dict schema_version 3.0]
+    EnrichedDict -.->|merged into| EstimatedDict
+  end
+  EM -->|execution_model model_profile source file_path| TokenModeler
+```
+
+**API:** `TokenModeler.estimate(execution_model, model_profile, *, source=None, file_path=None) -> WorkflowEstimate`. The internal pipeline: prompt detection → token signatures → propagation → loop amplification → branch envelopes → aggregation. When `source` (and optionally `file_path`) is provided, prompt size detection uses AST analysis; otherwise nodes are marked symbolic with conservative defaults.
+
+**WorkflowEstimate fields:** `graph_id`, `execution_model` (ExecutionModel), `node_signatures` (NodeTokenSignature tuple), `envelope` (CostEnvelope), `assumptions_profile` (str), `per_node_envelopes` (dict), `per_path_envelopes` (dict), `warnings` (str tuple).
+
+### 13a. Internal TokenModeler pipeline
+
+Inside `TokenModeler.estimate`, the ExecutionModel passes through estimation stages:
+
+```mermaid
+flowchart TB
+  EM[ExecutionModel] --> PromptDet[prompt detection]
+  PromptDet --> NodeSigs[NodeTokenSignature per node]
+  EM -->|digraph| Prop[propagate_tokens]
+  NodeSigs --> Prop
+  Prop --> PerNode[per-node CostEnvelope]
+  EM -->|cycles| LoopAmp[apply_loop_amplification]
+  PerNode --> LoopAmp
+  LoopAmp --> Amplified[amplified per-node envelopes]
+  EM -->|conditional_edges| BranchEnv[compute_branch_envelopes]
+  Amplified --> BranchEnv
+  BranchEnv --> PerPath[per-path CostEnvelope]
+  PerNode --> Agg[aggregate_workflow_envelope]
+  PerPath --> Agg
+  Agg --> WorkflowEnv[workflow-level CostEnvelope]
+  NodeSigs --> WE[WorkflowEstimate]
+  PerNode --> WE
+  WorkflowEnv --> WE
+  PerPath --> WE
+  EM --> WE
+```
+
+| Stage | Responsibility |
+|-------|---------------|
+| `prompt_detection.py` | AST-based extraction of string literals/f-strings from node callables; estimate `base_prompt_tokens`; mark symbolic if unresolvable. |
+| `propagation.py` | Token propagation: `T_out = (T_in + base_prompt) × expansion_factor`; topological traversal; accumulate min/expected/max per node. |
+| `loop_amplification.py` | Apply Phase 2 cycle data: bounded loops → `iterations × cost`; unbounded → configurable default iterations; widen envelopes. |
+| `branch_envelope.py` | At conditional branches: compute min (cheapest path), max (most expensive), expected (midpoint); nest with loops. |
+| `aggregation` | Sum propagated costs from entry to terminals; aggregate workflow-level envelope; report `bounded` flag. |
+
+---
+
+## 14. Pipeline with Phase 3 estimation output
+
+When the pipeline is run with Phase 3 integration (`estimate=True`), after building the WorkflowGraph and analyzing via GraphAnalyzer (Phase 2), the runner calls TokenModeler (Phase 3) and serializes the WorkflowEstimate for schema 3.0 output. The pipeline now supports three output modes: Phase 1 (base), Phase 2 (enriched), and Phase 3 (estimated). Phase 3 output includes all Phase 2 data plus token estimation fields.
+
+```mermaid
+flowchart TB
+  Root[root_path] --> Discover[discover_python_files]
+  Discover --> Paths[list of .py paths]
+  Paths --> Loop[for each path]
+  Loop --> Read[read_text]
+  Read --> Ingest[track + extract nodes edges entry]
+  Ingest --> Build[build_workflow_graph]
+  Build --> WG[WorkflowGraph]
+  WG --> Choice{output mode}
+  Choice -->|Phase 1| Base[workflow_graph_to_dict]
+  Choice -->|Phase 2 enriched| Analyze[analyze wg source file_path]
+  Analyze --> EM[ExecutionModel]
+  EM --> Enriched[execution_model_to_dict]
+  Choice -->|Phase 3 estimate| Analyze2[analyze wg source file_path]
+  Analyze2 --> EM2[ExecutionModel]
+  EM2 --> Estimate[TokenModeler.estimate em profile source file_path]
+  Estimate --> WE[WorkflowEstimate]
+  WE --> Estimated[workflow_estimate_to_dict]
+  Base --> Append[append to results]
+  Enriched --> Append
+  Estimated --> Append
+  Append --> Loop
+```
+
+**API:** `run_pipeline_on_directory(root_path, enriched=False, estimate=False, profile=None)`. When `estimate=True`, the pipeline uses the Phase 3 path: for each graph it calls `analyze(wg, source=source, file_path=file_path)` → `TokenModeler.estimate(em, profile, source=source, file_path=file_path)` → `workflow_estimate_to_dict(estimate)` and returns schema 3.0 dicts. `estimate=True` implies `enriched=True` (Phase 2 data included). Backward compatibility: `enriched=True` alone returns schema 2.0; `estimate=False` (default) returns Phase 1 base dicts.
+
+**Output schemas:**
+- **Phase 1:** `schema_version: "1.0"` — base graph structure only
+- **Phase 2:** `schema_version: "2.0"`, `enriched: true` — adds shape, cycles, metrics, node_annotations, risks
+- **Phase 3:** `schema_version: "3.0"`, `estimated: true`, `enriched: true` — adds token_estimate, node_signatures, per_node_envelopes, per_path_envelopes, warnings
+
+---
+
 *Add new flow diagrams to this document as the pipeline grows (entry/exit, compile, etc.).*

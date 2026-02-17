@@ -51,10 +51,12 @@ Noctyl answers:
   - **GraphAnalyzer** and **ExecutionModel** for control-flow, cycles, metrics, node annotations, and structural risks
   - Optional `enriched=True` pipeline output (schema 2.0); see `docs/phase/phase2.md` and `docs/flow-diagrams.md`
 
-- 📐 **Static Token Estimation**
-  - Prompt size analysis
-  - Memory replay modeling
-  - Loop and retry expansion
+- 📐 **Static Token Estimation (Phase 3)**
+  - Token envelope estimation (min/expected/max ranges)
+  - Node-level token signatures with prompt size detection
+  - Model profiles for user-declared assumptions
+  - Cost envelope computation for workflows, nodes, and paths
+  - Optional `estimate=True` pipeline output (schema 3.0); see `docs/phase/phase3.md` and `docs/flow-diagrams.md`
 
 - ⚠️ **Risk Detection**
   - Unbounded loops
@@ -129,11 +131,17 @@ noctyl/
 │       ├── metrics.py              # Structural metrics (counts, paths, branching)
 │       ├── node_annotation.py      # Per-node semantic annotation from AST
 │       └── structural_risk.py      # Risk detection (unreachable, dead-ends, non-terminating)
+│   │
+│   ├── estimation/                  # Token estimation (Phase 3)
+│       ├── __init__.py
+│       ├── data_model.py           # NodeTokenSignature, ModelProfile, CostEnvelope, WorkflowEstimate
+│       └── serializer.py           # workflow_estimate_to_dict (schema 3.0)
 │
-├── tests/                          # 266 tests (pytest)
+├── tests/                          # 297 tests (pytest)
 │   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
 │   ├── test_analysis.py            # Phase 2 analysis module tests
 │   ├── test_execution_model.py     # ExecutionModel serialization & immutability tests
+│   ├── test_estimation_model.py    # Phase 3 estimation data model & serializer tests
 │   ├── test_golden.py              # Golden fixture integration tests
 │   ├── test_golden_mermaid.py      # Mermaid generation for golden fixtures
 │   ├── test_ingestion_integration.py  # Full pipeline integration tests
@@ -153,7 +161,8 @@ noctyl/
 │   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
 │   └── phase/
 │       ├── phase1-scope.md         # Phase 1 scope & design
-│       └── phase2.md               # Phase 2 design & implementation status
+│       ├── phase2.md               # Phase 2 design & implementation status
+│       └── phase3.md               # Phase 3 design & implementation status
 │
 └── .github/
     └── ISSUE_TEMPLATE/             # Phase task issue templates
@@ -165,8 +174,10 @@ noctyl/
 
 **Phase 1** (LangGraph ingestion pipeline) — Implemented and tested.
 **Phase 2** (Static graph analysis: control-flow, metrics, annotations, risks) — Implemented and tested.
+**Phase 3** (Static token estimation) — In progress.
+  - **Task 1** (Data model and schema 3.0 serializer) — Implemented and tested ✓
 
-266 tests across 16 test files, all passing. APIs and behavior may evolve as new phases are added.
+297 tests across 17 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

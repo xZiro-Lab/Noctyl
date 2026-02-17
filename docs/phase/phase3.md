@@ -6,7 +6,13 @@
 
 ## Status
 
-Draft -- Phase-3
+In Progress -- Phase-3
+
+**Task 1 (Data Model):** Implemented ✓
+- `noctyl/estimation/` package created
+- `NodeTokenSignature`, `ModelProfile`, `CostEnvelope`, `WorkflowEstimate` dataclasses
+- `workflow_estimate_to_dict()` serializer (schema 3.0)
+- 31 tests in `tests/test_estimation_model.py`, all passing
 
 ## Owner
 
@@ -264,5 +270,58 @@ Noctyl can now answer:
 > What scale of token cost is structurally implied before execution?
 
 Without running a single line of user code.
+
+------------------------------------------------------------------------
+
+# 19. Implemented (Phase-3 Task 1)
+
+## Task 1: Data Model and Schema 3.0 Serializer
+
+**Status:** Implemented and tested ✓
+
+### Code
+
+- **`noctyl/estimation/__init__.py`** — Public exports for estimation types
+- **`noctyl/estimation/data_model.py`** — Frozen dataclasses:
+  - `NodeTokenSignature` — per-node token signature (base_prompt_tokens, expansion_factor, input_dependency, symbolic)
+  - `ModelProfile` — user-declared model assumptions (name, expansion_factor, output_ratio, pricing)
+  - `CostEnvelope` — token cost envelope (min/expected/max tokens, bounded, confidence) with invariant validation
+  - `WorkflowEstimate` — full estimation result (ExecutionModel reference + signatures + envelopes + warnings)
+- **`noctyl/estimation/serializer.py`** — `workflow_estimate_to_dict()`:
+  - Extends Phase 2 enriched dict (via `execution_model_to_dict`)
+  - Sets `schema_version: "3.0"`, `estimated: true`, `enriched: true`
+  - Adds `token_estimate`, `node_signatures`, `per_node_envelopes`, `per_path_envelopes`, `warnings`
+  - Deterministic sorting for all collections
+
+### Tests
+
+- **`tests/test_estimation_model.py`** — 31 tests covering:
+  - Structure and schema version enforcement
+  - Deterministic serialization (sorted collections)
+  - CostEnvelope invariant validation (`min <= expected <= max`)
+  - Frozen dataclass immutability
+  - JSON roundtrip
+  - Field serialization (all fields, symbolic nodes, unbounded envelopes)
+  - Edge cases (empty collections, all symbolic nodes, large estimates)
+  - Phase 2 integration (enriched fields preserved)
+
+### Schema 3.0 Output
+
+Extends schema 2.0 with:
+- `schema_version: "3.0"`
+- `estimated: true`
+- `token_estimate`: workflow-level envelope (assumptions_profile, min/expected/max tokens, bounded, confidence)
+- `node_signatures`: sorted list of per-node signatures
+- `per_node_envelopes`: sorted dict of per-node cost envelopes
+- `per_path_envelopes`: sorted dict of per-path cost envelopes (for conditional branches)
+- `warnings`: sorted list of estimation warnings
+
+All Phase 2 enriched fields (`shape`, `cycles`, `metrics`, `node_annotations`, `risks`) are preserved.
+
+### References
+
+- Implementation: `noctyl/estimation/`
+- Tests: `tests/test_estimation_model.py`
+- Flow diagrams: `docs/flow-diagrams.md` §§13–14
 
 ------------------------------------------------------------------------
