@@ -451,11 +451,161 @@ flowchart TB
 |-------|---------------|
 | `prompt_detection.py` | AST-based extraction of string literals/f-strings from node callables; estimate `base_prompt_tokens`; mark symbolic if unresolvable. |
 | `propagation.py` | Token propagation: `T_out = (T_in + base_prompt) × expansion_factor`; topological traversal; accumulate min/expected/max per node. |
-| `loop_amplification.py` | Apply Phase 2 cycle data: bounded loops → `iterations × cost`; unbounded → configurable default iterations; widen envelopes. |
+| `loop_amplification.py` | Apply Phase 2 cycle data: bounded loops → `iterations × cost`; unbounded → configurable default iterations (default 5); widen envelopes. |
 | `branch_envelope.py` | At conditional branches: compute min (cheapest path), max (most expensive), expected (midpoint); nest with loops. |
-| `aggregation` | Sum propagated costs from entry to terminals; aggregate workflow-level envelope; report `bounded` flag. |
+| `aggregation.py` | Sum propagated costs from entry to terminals; aggregate workflow-level envelope; report `bounded` flag. |
+| `token_modeler.py` | Main TokenModeler class orchestrating the full pipeline: prompt detection → propagation → loop amplification → branch envelopes → aggregation. |
 
-### 13b. Prompt detection detailed flow (Task 2)
+### 13b. Token propagation detailed flow (Task 3)
+
+Token propagation applies the formula `T_out = (T_in + base_prompt) × expansion_factor` through the workflow graph using topological traversal.
+
+```mermaid
+flowchart TB
+    Digraph[DirectedGraph] --> TopoSort[topological_sort]
+    NodeSigs[NodeTokenSignature tuple] --> SigMap[build sig_map]
+    TopoSort --> ForEach[for each node in topological order]
+    
+    ForEach --> CheckPred{has predecessors?}
+    CheckPred -->|no START only| EntryPoint[start with base_prompt_tokens]
+    CheckPred -->|has predecessors| Accumulate[accumulate from all predecessors]
+    
+    Accumulate --> ApplyFormula[apply T_out = T_in + base_prompt × expansion_factor]
+    ApplyFormula --> SumPaths[sum across all incoming paths]
+    
+    EntryPoint --> CheckCycle{in cycle?}
+    SumPaths --> CheckCycle
+    
+    CheckCycle -->|yes| BoundedFalse[bounded=False]
+    CheckCycle -->|no| BoundedTrue[bounded=True]
+    
+    BoundedFalse --> Envelope[CostEnvelope]
+    BoundedTrue --> Envelope
+    
+    Envelope --> PerNode[per_node dict]
+```
+
+**Key points:**
+- Entry points (nodes with START as predecessor) start with `base_prompt_tokens` (no expansion_factor applied yet)
+- Multiple incoming edges: sum envelopes from all predecessors
+- Expansion factor from `node_signature.expansion_factor` takes precedence over `model_profile.expansion_factor`
+- Nodes in cycles marked `bounded=False` initially (loop amplification handles bounds)
+
+### 13c. Loop amplification detailed flow (Task 3)
+
+Loop amplification multiplies cycle node envelopes by iteration count.
+
+```mermaid
+flowchart TB
+    PerNode[per_node envelopes] --> ForEachCycle[for each DetectedCycle]
+    Cycles[DetectedCycle tuple] --> ForEachCycle
+    
+    ForEachCycle --> ExtractNodes[extract cycle.nodes]
+    ExtractNodes --> CheckType{cycle_type?}
+    
+    CheckType -->|non_terminating| UseAssumed[use assumed_iterations default=5]
+    CheckType -->|other| UseAssumed
+    
+    UseAssumed --> Multiply[multiply envelope by iterations]
+    Multiply -->|min_tokens × iterations| NewMin
+    Multiply -->|expected_tokens × iterations| NewExpected
+    Multiply -->|max_tokens × iterations| NewMax
+    
+    NewMin --> SetBounded[bounded=False always]
+    NewExpected --> SetBounded
+    NewMax --> SetBounded
+    
+    SetBounded --> UpdateNode[update per_node envelope]
+    UpdateNode --> NextCycle[next cycle]
+    NextCycle --> Return[return updated per_node]
+```
+
+**Key points:**
+- All cycles treated as unbounded (Phase 2 doesn't detect iteration bounds yet)
+- Default `assumed_iterations = 5` (configurable parameter)
+- Non-terminating cycles use same assumed_iterations but generate warnings separately
+- Each cycle node's envelope multiplied independently
+
+### 13d. Branch envelope detailed flow (Task 3)
+
+Branch envelope computation aggregates costs across conditional paths.
+
+```mermaid
+flowchart TB
+    Digraph[DirectedGraph] --> GroupBySource[group conditional_edges by source]
+    CondEdges[ExtractedConditionalEdge tuple] --> GroupBySource
+    
+    GroupBySource --> ForEachBranch[for each branch point]
+    PerNode[per_node envelopes] --> ForEachBranch
+    
+    ForEachBranch --> ForEachPath[for each conditional path]
+    ForEachPath --> FindPaths[find_paths_to_terminals from target]
+    
+    FindPaths --> TraversePath[traverse path summing envelopes]
+    TraversePath --> PathEnv[path CostEnvelope]
+    
+    PathEnv --> CollectPaths[collect all path envelopes]
+    CollectPaths --> Aggregate[aggregate min/expected/max]
+    
+    Aggregate -->|min = min across paths| MinCost
+    Aggregate -->|max = max across paths| MaxCost
+    Aggregate -->|expected = min + max / 2| ExpectedCost
+    
+    MinCost --> CreateEnv[CostEnvelope]
+    MaxCost --> CreateEnv
+    ExpectedCost --> CreateEnv
+    
+    CreateEnv --> PathKey[path_key = source:condition_label]
+    PathKey --> PerPath[per_path dict]
+```
+
+**Key points:**
+- Path traversal: BFS from branch target to terminal nodes, summing envelopes
+- Branch envelope: min = cheapest path, max = most expensive path, expected = midpoint
+- Path keys: `"{source_node}:{condition_label}"` for determinism
+- Bounded flag: True only if all paths have bounded=True
+
+### 13e. Aggregation detailed flow (Task 3)
+
+Workflow aggregation sums costs from entry point to all terminal nodes.
+
+```mermaid
+flowchart TB
+    PerNode[per_node envelopes] --> CheckEntry{entry_point exists?}
+    EntryPoint[entry_point] --> CheckEntry
+    Terminals[terminal_nodes] --> CheckEntry
+    
+    CheckEntry -->|no| ZeroEnv[return zero envelope]
+    CheckEntry -->|yes| ForEachTerminal[for each terminal node]
+    
+    ForEachTerminal --> FindPaths[find_paths_to_terminal from entry]
+    FindPaths --> SumPath[sum envelope along path]
+    SumPath --> CollectTerminal[collect terminal envelopes]
+    
+    CollectTerminal --> Aggregate[aggregate across terminals]
+    Aggregate -->|min = min across terminals| MinTokens
+    Aggregate -->|max = max across terminals| MaxTokens
+    Aggregate -->|expected = sum across terminals| ExpectedTokens
+    
+    MinTokens --> CheckBounded[all paths bounded?]
+    MaxTokens --> CheckBounded
+    ExpectedTokens --> CheckBounded
+    
+    CheckBounded -->|yes| BoundedTrue[bounded=True]
+    CheckBounded -->|no| BoundedFalse[bounded=False]
+    
+    BoundedTrue --> WorkflowEnv[workflow CostEnvelope]
+    BoundedFalse --> WorkflowEnv
+    ZeroEnv --> WorkflowEnv
+```
+
+**Key points:**
+- Path finding: BFS/DFS from entry_point to each terminal
+- Multiple paths to same terminal: use maximum envelope (worst case)
+- Aggregation: min = min across terminals, max = max across terminals, expected = sum
+- Invariant: expected_tokens clamped to be between min_tokens and max_tokens
+
+### 13f. Prompt detection detailed flow (Task 2)
 
 The prompt detection stage (`compute_node_token_signatures`) extracts string literals from node callables using AST analysis. This is the foundation for token estimation.
 

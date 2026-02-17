@@ -135,7 +135,13 @@ noctyl/
 │   ├── estimation/                  # Token estimation (Phase 3)
 │       ├── __init__.py
 │       ├── data_model.py           # NodeTokenSignature, ModelProfile, CostEnvelope, WorkflowEstimate
-│       └── serializer.py           # workflow_estimate_to_dict (schema 3.0)
+│       ├── serializer.py           # workflow_estimate_to_dict (schema 3.0)
+│       ├── prompt_detection.py    # AST-based prompt string detection
+│       ├── propagation.py          # Token propagation with topological traversal
+│       ├── loop_amplification.py  # Loop amplification using DetectedCycle data
+│       ├── branch_envelope.py     # Branch envelope computation for conditional paths
+│       ├── aggregation.py         # Workflow-level envelope aggregation
+│       └── token_modeler.py       # TokenModeler class orchestrating the pipeline
 │
 ├── tests/                          # 297 tests (pytest)
 │   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
@@ -157,7 +163,12 @@ noctyl/
 │   ├── test_repo_scanner.py        # File discovery tests
 │   ├── test_example_multi_agent.py # Multi-agent example tests
 │   ├── test_estimation_model.py    # Phase 3 data model & serializer tests
-│   └── test_prompt_detection.py    # Phase 3 prompt detection & token signature tests
+│   ├── test_prompt_detection.py    # Phase 3 prompt detection & token signature tests
+│   ├── test_propagation.py         # Phase 3 token propagation tests
+│   ├── test_loop_amplification.py  # Phase 3 loop amplification tests
+│   ├── test_branch_envelope.py    # Phase 3 branch envelope tests
+│   ├── test_aggregation.py         # Phase 3 workflow aggregation tests
+│   └── test_token_modeler.py       # Phase 3 TokenModeler integration tests
 │
 ├── docs/
 │   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
@@ -179,8 +190,9 @@ noctyl/
 **Phase 3** (Static token estimation) — In progress.
   - **Task 1** (Data model and schema 3.0 serializer) — Implemented and tested ✓
   - **Task 2** (Prompt size detection) — Implemented and tested ✓
+  - **Task 3** (TokenModeler: propagation, loops, branches, aggregation) — Implemented and tested ✓
 
-344 tests across 18 test files, all passing. APIs and behavior may evolve as new phases are added.
+388 tests across 22 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

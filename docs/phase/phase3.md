@@ -382,3 +382,117 @@ All Phase 2 enriched fields (`shape`, `cycles`, `metrics`, `node_annotations`, `
 - Related: `noctyl/analysis/node_annotation.py` (callable resolution patterns)
 
 ------------------------------------------------------------------------
+
+# 21. Implemented (Phase-3 Task 3)
+
+## Task 3: TokenModeler
+
+**Status:** Implemented and tested ✓
+
+### Code
+
+- **`noctyl/estimation/propagation.py`** — Token propagation with topological traversal:
+  - `propagate_tokens()` — applies `T_out = (T_in + base_prompt) × expansion_factor`
+  - Topological sort (Kahn's algorithm) for acyclic traversal
+  - Entry point detection (nodes with START as predecessor)
+  - Convergence handling (multiple incoming edges sum envelopes)
+  - Cycle node marking (bounded=False initially)
+- **`noctyl/estimation/loop_amplification.py`** — Loop amplification:
+  - `apply_loop_amplification()` — multiplies cycle node envelopes by iteration count
+  - Uses `DetectedCycle` data from Phase 2
+  - Default `assumed_iterations = 5` for unbounded cycles
+  - Non-terminating cycles handled with warnings
+- **`noctyl/estimation/branch_envelope.py`** — Branch envelope computation:
+  - `compute_branch_envelopes()` — computes min/expected/max across conditional paths
+  - Path traversal from branch point to terminals (BFS)
+  - Path key format: `"{source}:{condition_label}"`
+  - Bounded flag aggregation across paths
+- **`noctyl/estimation/aggregation.py`** — Workflow aggregation:
+  - `aggregate_workflow_envelope()` — aggregates from entry to terminals
+  - Path finding from entry_point to each terminal
+  - Invariant enforcement (expected_tokens between min and max)
+  - Confidence always "structural-static"
+- **`noctyl/estimation/token_modeler.py`** — Main TokenModeler class:
+  - `TokenModeler.estimate()` — orchestrates full pipeline:
+    1. Build DirectedGraph
+    2. Compute node token signatures (prompt detection)
+    3. Propagate tokens
+    4. Apply loop amplification
+    5. Compute branch envelopes
+    6. Aggregate workflow envelope
+    7. Collect warnings
+    8. Build WorkflowEstimate
+  - Warning collection: symbolic nodes, unbounded loops, non-terminating cycles
+  - Deterministic output (sorted dicts and tuples)
+
+### Tests
+
+- **`tests/test_propagation.py`** — 9 unit tests covering:
+  - Linear workflow propagation
+  - Branching workflow propagation
+  - Cyclic workflow propagation
+  - Convergence (multiple incoming edges)
+  - Symbolic nodes
+  - Entry point handling
+  - Custom expansion factors
+  - Empty graph edge case
+  - Deterministic output
+- **`tests/test_loop_amplification.py`** — 8 unit tests covering:
+  - Self-loop amplification
+  - Multi-node cycle amplification
+  - Non-terminating cycles
+  - Multiple independent cycles
+  - Empty cycles case
+  - Custom iterations parameter
+  - Non-cycle nodes preservation
+  - Deterministic output
+- **`tests/test_branch_envelope.py`** — 7 unit tests covering:
+  - Single branch point with 2 paths
+  - Multiple branch points
+  - Paths with different costs
+  - Paths terminating at END
+  - No conditional edges case
+  - Deterministic path keys
+  - Bounded flag aggregation
+- **`tests/test_aggregation.py`** — 8 unit tests covering:
+  - Single terminal node
+  - Multiple terminal nodes
+  - No entry point edge case
+  - No terminals edge case
+  - Multiple paths to same terminal
+  - Bounded flag aggregation
+  - Confidence field
+  - Deterministic output
+- **`tests/test_token_modeler.py`** — 12 integration tests covering:
+  - Linear workflow end-to-end
+  - Cyclic workflow end-to-end
+  - Branching workflow end-to-end
+  - Complex workflows (cycles + branches)
+  - Source code provided vs not provided
+  - Warnings collection
+  - Deterministic output
+  - Empty graph edge case
+  - ModelProfile integration
+  - WorkflowEstimate structure validation
+  - Dict sorting
+  - Phase 2 integration
+
+**Total:** 44 new tests, all passing.
+
+### Features
+
+- **Topological token propagation:** Formula-based propagation through workflow graph
+- **Loop amplification:** Cycle cost multiplication with assumed iterations
+- **Branch envelope computation:** Min/expected/max across conditional paths
+- **Workflow-level aggregation:** Entry-to-terminal cost summation
+- **Deterministic output:** Sorted dicts and tuples for reproducibility
+- **Warning collection:** Symbolic nodes, unbounded loops, non-terminating cycles
+- **Invariant enforcement:** CostEnvelope min <= expected <= max always maintained
+
+### References
+
+- Implementation: `noctyl/estimation/propagation.py`, `loop_amplification.py`, `branch_envelope.py`, `aggregation.py`, `token_modeler.py`
+- Tests: `tests/test_propagation.py`, `tests/test_loop_amplification.py`, `tests/test_branch_envelope.py`, `tests/test_aggregation.py`, `tests/test_token_modeler.py`
+- Related: `noctyl/analysis/digraph.py` (DirectedGraph), `noctyl/graph/execution_model.py` (DetectedCycle)
+
+------------------------------------------------------------------------
