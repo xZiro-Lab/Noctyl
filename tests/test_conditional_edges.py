@@ -1,8 +1,8 @@
 """Tests for add_conditional_edges extraction."""
 
-from noctyl.graph.edges import ExtractedConditionalEdge
-from noctyl.ingestion.edge_extractor import extract_add_conditional_edges
-from noctyl.ingestion.stategraph_tracker import track_stategraph_instances
+from noctyl_scout.graph.edges import ExtractedConditionalEdge
+from noctyl_scout.ingestion.edge_extractor import extract_add_conditional_edges
+from noctyl_scout.ingestion.stategraph_tracker import track_stategraph_instances
 
 
 def _extract_conditional(source: str, file_path: str = "file.py"):

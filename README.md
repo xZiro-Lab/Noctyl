@@ -147,7 +147,7 @@ noctyl/
 │   │
 │   ├── ingestion/                  # Repo scanning, detection & extraction (Phase 1)
 │   │   ├── __init__.py
-│   │   ├── pipeline.py             # run_pipeline_on_directory (Phase 1 + Phase 2)
+│   │   ├── pipeline.py             # run_pipeline_on_directory (Phase 1 + Phase 2 + Phase 3)
 │   │   ├── repo_scanner.py         # discover_python_files + default ignores
 │   │   ├── langgraph_detector.py   # has_langgraph_import / file_contains_langgraph
 │   │   ├── stategraph_tracker.py   # track StateGraph instances per file
@@ -186,7 +186,7 @@ noctyl/
 │   │
 │   └── cli.py                       # CLI command interface (noctyl estimate)
 │
-├── tests/                          # 297 tests (pytest)
+├── tests/                          # 493+ tests (pytest)
 │   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
 │   ├── test_analysis.py            # Phase 2 analysis module tests
 │   ├── test_execution_model.py     # ExecutionModel serialization & immutability tests
@@ -205,7 +205,6 @@ noctyl/
 │   ├── test_entry_point.py         # Entry point detection tests
 │   ├── test_repo_scanner.py        # File discovery tests
 │   ├── test_example_multi_agent.py # Multi-agent example tests
-│   ├── test_estimation_model.py    # Phase 3 data model & serializer tests
 │   ├── test_prompt_detection.py    # Phase 3 prompt detection & token signature tests
 │   ├── test_propagation.py         # Phase 3 token propagation tests
 │   ├── test_loop_amplification.py  # Phase 3 loop amplification tests
@@ -214,7 +213,8 @@ noctyl/
 │   ├── test_token_modeler.py       # Phase 3 TokenModeler integration tests
 │   ├── test_profile_loader.py       # Phase 3 profile loader tests
 │   ├── test_pipeline_integration.py  # Phase 3 pipeline integration tests
-│   └── test_cli.py                  # CLI tests
+│   ├── test_cli.py                  # CLI tests
+│   └── test_phase3_comprehensive.py # Phase 3 comprehensive integration tests
 │
 ├── docs/
 │   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
@@ -233,13 +233,15 @@ noctyl/
 
 **Phase 1** (LangGraph ingestion pipeline) — Implemented and tested.
 **Phase 2** (Static graph analysis: control-flow, metrics, annotations, risks) — Implemented and tested.
-**Phase 3** (Static token estimation) — In progress.
+**Phase 3** (Static token estimation) — Implemented and tested.
   - **Task 1** (Data model and schema 3.0 serializer) — Implemented and tested ✓
   - **Task 2** (Prompt size detection) — Implemented and tested ✓
   - **Task 3** (TokenModeler: propagation, loops, branches, aggregation) — Implemented and tested ✓
   - **Task 4** (Pipeline integration & CLI) — Implemented and tested ✓
+  - **Task 5** (Comprehensive testing) — Implemented and tested ✓
+  - **Task 6** (Documentation) — Implemented ✓
 
-443+ tests across 25 test files, all passing. APIs and behavior may evolve as new phases are added.
+493+ tests across 27 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

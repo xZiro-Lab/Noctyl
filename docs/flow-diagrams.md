@@ -253,11 +253,13 @@ flowchart TB
   HasLangGraph -->|False| Loop
   HasLangGraph -->|True| Ingest[track + extract nodes edges entry]
   Ingest --> Build[build_workflow_graph]
-  Build --> Choice{enriched flag}
-  Choice -->|False| Base[workflow_graph_to_dict]
-  Choice -->|True| Analyze[analyze + execution_model_to_dict]
+  Build --> Choice{output mode}
+  Choice -->|Phase 1| Base[workflow_graph_to_dict]
+  Choice -->|Phase 2 enriched| Analyze[analyze + execution_model_to_dict]
+  Choice -->|Phase 3 estimate| AnalyzeEst[analyze + TokenModeler.estimate + workflow_estimate_to_dict]
   Base --> Append[append to results]
   Analyze --> Append
+  AnalyzeEst --> Append
   Append --> Loop
   Loop --> Done[return results and warnings]
 ```
@@ -276,7 +278,7 @@ flowchart TB
 - **`run_pipeline_on_directory`** (when reading files) appends:
   - `"{path}: could not read"` on OSError or UnicodeDecodeError for that file.
 
-**Tool does not crash:** `run_pipeline_on_directory(root_path, enriched=False)` and `run_pipeline_on_directory(root_path, enriched=True)` both run discover → read each file → ingest → build WorkflowGraph → serialize (base or enriched). File-read errors are caught and skipped with warnings, so the pipeline does not raise for invalid or unreadable files.
+**Tool does not crash:** `run_pipeline_on_directory(root_path, enriched=False, estimate=False)` (Phase 1), `run_pipeline_on_directory(root_path, enriched=True, estimate=False)` (Phase 2), and `run_pipeline_on_directory(root_path, estimate=True)` (Phase 3) all run discover → read each file → ingest → build WorkflowGraph → serialize (base, enriched, or estimated). File-read errors are caught and skipped with warnings, so the pipeline does not raise for invalid or unreadable files.
 
 ---
 
@@ -369,9 +371,9 @@ All algorithms use Python's standard library only (no `networkx` dependency).
 
 ---
 
-## 12. Pipeline with optional Phase 2 enriched output
+## 12. Pipeline with three output modes (Phase 1 / Phase 2 / Phase 3)
 
-When the pipeline is run with Phase 2 integration, after building each WorkflowGraph the runner can call the analyzer and serialize the ExecutionModel for enriched output. Phase-1-only callers continue to receive base dicts (e.g. from `workflow_graph_to_dict`); enriched callers receive schema 2.0 dicts with cycles, shape, metrics, node_annotations, and risks.
+The pipeline supports three output modes: Phase 1 (base graph structure), Phase 2 (enriched with analysis), and Phase 3 (estimated with token envelopes). Phase-1-only callers receive base dicts (schema 1.0); Phase 2 callers receive enriched dicts (schema 2.0) with cycles, shape, metrics, node_annotations, and risks; Phase 3 callers receive estimated dicts (schema 3.0) with all Phase 2 data plus token estimation fields.
 
 ```mermaid
 flowchart TB
@@ -383,16 +385,28 @@ flowchart TB
   Ingest --> Build[build_workflow_graph]
   Build --> WG[WorkflowGraph]
   WG --> Choice{output mode}
-  Choice -->|Phase 1 only| Base[workflow_graph_to_dict]
+  Choice -->|Phase 1| Base[workflow_graph_to_dict schema 1.0]
   Choice -->|Phase 2 enriched| Analyze[analyze wg source file_path]
   Analyze --> EM[ExecutionModel]
-  EM --> Enriched[execution_model_to_dict]
+  EM --> Enriched[execution_model_to_dict schema 2.0]
+  Choice -->|Phase 3 estimate| Analyze2[analyze wg source file_path]
+  Analyze2 --> EM2[ExecutionModel]
+  EM2 --> Estimate[TokenModeler.estimate em profile source file_path]
+  Estimate --> WE[WorkflowEstimate]
+  WE --> Estimated[workflow_estimate_to_dict schema 3.0]
   Base --> Append[append to results]
   Enriched --> Append
+  Estimated --> Append
   Append --> Loop
 ```
 
-**API:** `run_pipeline_on_directory(root_path, enriched=False)` (default). When `enriched` is False, each result dict is from `workflow_graph_to_dict` (Phase-1). When `enriched` is True, the pipeline uses the Phase 2 path: for each graph it calls `analyze(wg, source=source, file_path=file_path)` then `execution_model_to_dict(model)` and returns those enriched dicts. Backward compatibility: existing callers that omit `enriched` get Phase-1-only output. See [phase2_task3_pipeline_integration.md](../.github/ISSUE_TEMPLATE/phase2_task3_pipeline_integration.md).
+**API:** `run_pipeline_on_directory(root_path, enriched=False, estimate=False, profile=None)`. 
+
+- **Phase 1 (default):** `enriched=False, estimate=False` → schema 1.0 base dicts
+- **Phase 2:** `enriched=True, estimate=False` → schema 2.0 enriched dicts
+- **Phase 3:** `estimate=True` → schema 3.0 estimated dicts (automatically sets `enriched=True`)
+
+When `estimate=True`, the pipeline uses the Phase 3 path: for each graph it calls `analyze(wg, source=source, file_path=file_path)` → `TokenModeler.estimate(em, profile, source=source, file_path=file_path)` → `workflow_estimate_to_dict(estimate)` and returns schema 3.0 dicts. Backward compatibility: existing callers that omit `enriched` get Phase-1-only output; `enriched=True` alone returns Phase 2 output.
 
 ---
 
@@ -470,7 +484,7 @@ flowchart TB
     CheckPred -->|no START only| EntryPoint[start with base_prompt_tokens]
     CheckPred -->|has predecessors| Accumulate[accumulate from all predecessors]
     
-    Accumulate --> ApplyFormula[apply T_out = T_in + base_prompt × expansion_factor]
+    Accumulate --> ApplyFormula[apply T_out = (T_in + base_prompt) × expansion_factor]
     ApplyFormula --> SumPaths[sum across all incoming paths]
     
     EntryPoint --> CheckCycle{in cycle?}
@@ -549,11 +563,12 @@ flowchart TB
     
     Aggregate -->|min = min across paths| MinCost
     Aggregate -->|max = max across paths| MaxCost
-    Aggregate -->|expected = min + max / 2| ExpectedCost
+    Aggregate -->|expected = (min + max) / 2| ExpectedCost
+    ExpectedCost --> Clamp[clamp expected between min and max]
     
     MinCost --> CreateEnv[CostEnvelope]
     MaxCost --> CreateEnv
-    ExpectedCost --> CreateEnv
+    Clamp --> CreateEnv
     
     CreateEnv --> PathKey[path_key = source:condition_label]
     PathKey --> PerPath[per_path dict]
@@ -561,7 +576,8 @@ flowchart TB
 
 **Key points:**
 - Path traversal: BFS from branch target to terminal nodes, summing envelopes
-- Branch envelope: min = cheapest path, max = most expensive path, expected = midpoint
+- Branch envelope: min = cheapest path, max = most expensive path, expected = (min + max) / 2 (midpoint)
+- Expected value is clamped to be between min and max (invariant enforcement)
 - Path keys: `"{source_node}:{condition_label}"` for determinism
 - Bounded flag: True only if all paths have bounded=True
 
@@ -585,11 +601,12 @@ flowchart TB
     CollectTerminal --> Aggregate[aggregate across terminals]
     Aggregate -->|min = min across terminals| MinTokens
     Aggregate -->|max = max across terminals| MaxTokens
-    Aggregate -->|expected = sum across terminals| ExpectedTokens
+    Aggregate -->|expected = sum across terminals| ExpectedTokensRaw
+    ExpectedTokensRaw --> Clamp[clamp expected between min and max]
     
     MinTokens --> CheckBounded[all paths bounded?]
     MaxTokens --> CheckBounded
-    ExpectedTokens --> CheckBounded
+    Clamp --> CheckBounded
     
     CheckBounded -->|yes| BoundedTrue[bounded=True]
     CheckBounded -->|no| BoundedFalse[bounded=False]
@@ -602,8 +619,8 @@ flowchart TB
 **Key points:**
 - Path finding: BFS/DFS from entry_point to each terminal
 - Multiple paths to same terminal: use maximum envelope (worst case)
-- Aggregation: min = min across terminals, max = max across terminals, expected = sum
-- Invariant: expected_tokens clamped to be between min_tokens and max_tokens
+- Aggregation: min = min across terminals, max = max across terminals, expected = sum of expected across terminals
+- Invariant: expected_tokens is clamped to be between min_tokens and max_tokens (enforced after summing)
 
 ### 13f. Prompt detection detailed flow (Task 2)
 
@@ -742,7 +759,7 @@ flowchart TB
 
 ## 14a. CLI Estimate Command Flow
 
-The `noctyl estimate` CLI command provides a command-line interface for token estimation. It parses arguments, loads model profiles (YAML files or defaults), invokes the pipeline with `estimate=True`, and outputs JSON to stdout or a file.
+The `noctyl estimate` CLI command provides a command-line interface for token estimation. It parses arguments, passes the profile path (if provided) to the pipeline, invokes the pipeline with `estimate=True`, and outputs JSON to stdout or a file. Profile loading is handled internally by the pipeline.
 
 ```mermaid
 flowchart TB
@@ -753,17 +770,9 @@ flowchart TB
   
   PathArg --> ValidatePath[validate path exists]
   ValidatePath -->|invalid| Error[print error to stderr, exit 1]
-  ValidatePath -->|valid| LoadProfile{profile provided?}
+  ValidatePath -->|valid| Pipeline[run_pipeline_on_directory path estimate=True profile]
   
-  ProfileFlag --> LoadProfile
-  LoadProfile -->|yes| LoadYAML[load_model_profile yaml_file]
-  LoadProfile -->|no| DefaultProfile[load_model_profile None]
-  
-  LoadYAML -->|error| DefaultProfile
-  LoadYAML -->|success| Profile[ModelProfile]
-  DefaultProfile --> Profile
-  
-  Profile --> Pipeline[run_pipeline_on_directory path estimate=True profile]
+  ProfileFlag --> Pipeline
   Pipeline --> Results[results list of dicts]
   Pipeline --> Warnings[warnings list]
   
@@ -824,7 +833,7 @@ model_profiles:
 
 **Error Handling:**
 - Invalid path: prints error to stderr, exits with code 1
-- Invalid profile file: falls back to default profile, adds warning, may exit with code 1 if warnings cause non-zero exit
+- Profile loading: handled by pipeline (`run_pipeline_on_directory`), which calls `load_model_profile` internally. On error, pipeline falls back to default profile and adds warning.
 - File read errors: handled by pipeline, warnings collected
 - JSON serialization errors: prints error to stderr, exits with code 1
 

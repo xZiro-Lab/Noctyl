@@ -1,10 +1,10 @@
 """Tests for file-level LangGraph detection."""
 
-from noctyl.ingestion.langgraph_detector import (
+from noctyl_scout.ingestion.langgraph_detector import (
     file_contains_langgraph,
     has_langgraph_import,
 )
-from noctyl.ingestion.stategraph_tracker import track_stategraph_instances
+from noctyl_scout.ingestion.stategraph_tracker import track_stategraph_instances
 
 
 def test_file_contains_langgraph_no_import():

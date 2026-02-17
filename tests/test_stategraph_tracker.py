@@ -1,6 +1,6 @@
 """Unit tests for StateGraph instance tracking (plan §8.1 T1–T12)."""
 
-from noctyl.ingestion.stategraph_tracker import (
+from noctyl_scout.ingestion.stategraph_tracker import (
     TrackedStateGraph,
     track_stategraph_instances,
 )

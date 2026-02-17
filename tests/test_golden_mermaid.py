@@ -7,8 +7,8 @@ Then open tests/fixtures/golden/generated/*.mmd in Mermaid Live Editor or any Me
 
 from pathlib import Path
 
-from noctyl.graph import workflow_dict_to_mermaid
-from noctyl.ingestion import run_pipeline_on_directory
+from noctyl_scout.graph import workflow_dict_to_mermaid
+from noctyl_scout.ingestion import run_pipeline_on_directory
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "fixtures" / "golden"
 GENERATED_DIR = GOLDEN_DIR / "generated"

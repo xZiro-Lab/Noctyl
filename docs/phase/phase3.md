@@ -6,13 +6,22 @@
 
 ## Status
 
-In Progress -- Phase-3
+Implemented -- Phase-3
 
-**Task 1 (Data Model):** Implemented ✓
-- `noctyl/estimation/` package created
-- `NodeTokenSignature`, `ModelProfile`, `CostEnvelope`, `WorkflowEstimate` dataclasses
-- `workflow_estimate_to_dict()` serializer (schema 3.0)
-- 31 tests in `tests/test_estimation_model.py`, all passing
+**All Tasks Complete:**
+- **Task 1 (Data Model):** Implemented ✓
+- **Task 2 (Prompt Detection):** Implemented ✓
+- **Task 3 (TokenModeler):** Implemented ✓
+- **Task 4 (Pipeline Integration & CLI):** Implemented ✓
+- **Task 5 (Comprehensive Tests):** Implemented ✓
+- **Task 6 (Documentation):** Implemented ✓
+
+**Summary:**
+- `noctyl/estimation/` package with 9 modules
+- `noctyl/cli.py` CLI command interface
+- 215+ Phase 3 tests across 9 test files, all passing
+- Schema 3.0 output with token estimation
+- YAML profile loading and CLI integration
 
 ## Owner
 
@@ -636,5 +645,150 @@ model_profiles:
 - Tests: `tests/test_profile_loader.py`, `tests/test_pipeline_integration.py`, `tests/test_cli.py`
 - Related: `noctyl/estimation/token_modeler.py` (TokenModeler), `noctyl/estimation/serializer.py` (workflow_estimate_to_dict)
 - Documentation: `docs/flow-diagrams.md` (Section 14a: CLI Estimate Command Flow)
+
+------------------------------------------------------------------------
+
+## 23. Implemented (Phase-3 Task 5): Comprehensive Testing
+
+**Status:** Implemented and tested ✓
+
+### Tests
+
+**Enhanced existing test files:**
+- **`tests/test_estimation_model.py`** — Added 8 tests (total: 39 tests)
+  - Serialization roundtrip determinism
+  - CostEnvelope edge cases and boundary values
+  - Permutation determinism tests
+  - Schema version enforcement
+  - All required fields presence
+  - Large workflow performance (100+ nodes)
+  - Zero tokens edge case
+  - All warning types
+  
+- **`tests/test_prompt_detection.py`** — Added 6 tests (total: 53 tests)
+  - Config constant detection
+  - Empty source resilience
+  - Syntax error resilience
+  - Multi-string accumulation per node
+  - Nested function string extraction
+  - Dynamic f-string portions marked symbolic
+  
+- **`tests/test_token_modeler.py`** — Added 10 tests (total: 22 tests)
+  - Nested loops and branches
+  - Symbolic nodes widen bounds
+  - Monotonicity: more loops → higher max
+  - Monotonicity: more branches → wider range
+  - Empty graph trivial envelope
+  - Single node graph
+  - Cycles-only no terminals
+  - Branches-only no loops
+  - Multi-graph estimation
+  - Determinism permutations
+  
+- **`tests/test_profile_loader.py`** — Added 3 tests (total: 20 tests)
+  - Comprehensive error handling
+  - Deterministic permutations
+  - Large YAML file (10 profiles)
+  
+- **`tests/test_golden.py`** — Added 8 Phase 3 tests (total: 25 tests)
+  - Estimate mode schema 3.0
+  - Linear fixture: min=expected=max (tight bounds)
+  - Cyclic fixture: max>=expected>=min (loop amplification)
+  - Conditional fixture: branch envelopes present
+  - Determinism across runs
+  - All fixtures valid
+  - Warnings collected
+  - Phase 2 fields present
+  
+- **`tests/test_ingestion_integration.py`** — Added 5 tests
+  - Unreadable files graceful handling
+  - Empty directory graceful
+  - Custom profile changes estimates
+  - Deterministic multiple runs
+  - Mixed valid/invalid files
+  
+- **`tests/test_cli.py`** — Added 4 tests (total: 19 tests)
+  - No LangGraph files graceful
+  - Deterministic output
+  - Large directory performance
+  - Error message clarity
+
+**New test file:**
+- **`tests/test_phase3_comprehensive.py`** — 8 comprehensive integration tests
+  - End-to-end pipeline + CLI + golden fixtures
+  - Profile YAML CLI integration
+  - Custom profile pipeline
+  - All features together (loops, branches, symbolic)
+  - Full pipeline determinism
+  - Error propagation
+  - Performance large workflow
+  - Regression: Phase 2 tests still pass
+
+**Total Phase 3 tests:** 215+ tests across 9 test files, all passing.
+
+### Test Coverage
+
+- **Unit tests:** Individual component testing (data models, prompt detection, propagation, etc.)
+- **Integration tests:** Components working together (TokenModeler, pipeline integration)
+- **End-to-end tests:** Full pipeline (CLI → pipeline → TokenModeler → output)
+- **Determinism tests:** Same inputs → identical outputs, permutation tests
+- **Edge case tests:** Empty graphs, single nodes, cycles-only, branches-only, symbolic nodes
+- **Monotonicity tests:** More loops → higher estimates, more branches → wider ranges
+- **Performance tests:** Large workflows (100+ nodes)
+- **Regression tests:** Phase 2 compatibility maintained
+
+### References
+
+- Test files: All Phase 3 test files in `tests/`
+- Test count: 215+ Phase 3 tests, 493+ total tests across all phases
+- Coverage: Comprehensive coverage of all Phase 3 modules and features
+
+------------------------------------------------------------------------
+
+## 24. Implemented (Phase-3 Task 6): Documentation
+
+**Status:** Implemented ✓
+
+### Documentation Updates
+
+**`docs/flow-diagrams.md`:**
+- **Section 12:** Updated to show three output modes (Phase 1 / Phase 2 / Phase 3)
+- **Section 13:** Phase 3 TokenModeler and cost envelope estimation
+  - Internal TokenModeler pipeline diagram
+  - Token propagation detailed flow
+  - Loop amplification detailed flow
+  - Branch envelope detailed flow
+  - Aggregation detailed flow
+  - Prompt detection detailed flow
+- **Section 14:** Pipeline with Phase 3 estimation output
+  - Three output modes (Phase 1 / Phase 2 / Phase 3)
+  - Schema 3.0 output branch
+  - API documentation
+- **Section 14a:** CLI Estimate Command Flow
+  - CLI command parsing and execution
+  - Profile loading flow
+  - Error handling
+
+**`docs/phase/phase3.md`:**
+- Status updated to "Implemented -- Phase-3"
+- All task implementation sections (Tasks 1-6)
+- Code references for all modules
+- Test references and coverage
+- Schema 3.0 output specification
+- CLI usage documentation
+
+**`README.md`:**
+- Core Capabilities updated with Phase 3 bullet
+- Project structure includes `noctyl/estimation/` and `cli.py`
+- Status section updated with Phase 3 completion
+- CLI Usage section with examples
+- Profile file format documentation
+- Test count updated (493+ tests)
+
+### References
+
+- `docs/flow-diagrams.md` — Architecture and pipeline diagrams
+- `docs/phase/phase3.md` — Design document and implementation status
+- `README.md` — Project overview and usage
 
 ------------------------------------------------------------------------

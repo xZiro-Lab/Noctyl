@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 
-from noctyl.ingestion.stategraph_tracker import (
+from noctyl_scout.ingestion.stategraph_tracker import (
     LANGGRAPH_STATEGRAPH_MODULE,
     track_stategraph_instances,
 )

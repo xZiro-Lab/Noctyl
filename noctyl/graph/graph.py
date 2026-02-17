@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from noctyl.graph.edges import ExtractedConditionalEdge, ExtractedEdge
-from noctyl.graph.nodes import ExtractedNode
+from noctyl_scout.graph.edges import ExtractedConditionalEdge, ExtractedEdge
+from noctyl_scout.graph.nodes import ExtractedNode
 
 DEFAULT_SCHEMA_VERSION = "1.0"
 
