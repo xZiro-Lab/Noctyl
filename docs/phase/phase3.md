@@ -325,3 +325,60 @@ All Phase 2 enriched fields (`shape`, `cycles`, `metrics`, `node_annotations`, `
 - Flow diagrams: `docs/flow-diagrams.md` §§13–14
 
 ------------------------------------------------------------------------
+
+# 20. Implemented (Phase-3 Task 2)
+
+## Task 2: Prompt Size Detection
+
+**Status:** Implemented and tested ✓
+
+### Code
+
+- **`noctyl/estimation/prompt_detection.py`** — AST-based static prompt detection:
+  - `PromptFragment` — dataclass for detected string fragments (text, token_estimate, symbolic)
+  - `estimate_tokens_from_string()` — heuristic token estimation (`len(text) // 4`, min 1)
+  - `detect_prompt_strings()` — extracts strings from function AST bodies:
+    - Literal strings (`ast.Constant`)
+    - F-strings (`ast.JoinedStr`) with static/dynamic part detection
+    - String concatenation (`ast.BinOp` with `+`)
+    - `.format()` calls with literal argument detection
+    - Marks dynamic parts as symbolic
+  - `_has_input_dependency()` — heuristic to detect state/input dependencies
+  - `compute_node_token_signatures()` — orchestrates callable resolution and signature computation:
+    - Resolves callables (local functions, imported functions, class methods, lambdas)
+    - Detects prompt strings per node
+    - Sums token estimates from fragments
+    - Applies ModelProfile defaults
+    - Returns sorted tuple of `NodeTokenSignature`
+- **`noctyl/estimation/__init__.py`** — Updated exports for prompt detection types and functions
+
+### Tests
+
+- **`tests/test_prompt_detection.py`** — 47 tests covering:
+  - Token estimation heuristics (basic, empty, short, long strings)
+  - String detection (literals, f-strings, concatenation, `.format()` calls)
+  - Callable resolution (local, imported, lambda, class methods)
+  - Input dependency detection
+  - Symbolic marking for dynamic content
+  - Integration with WorkflowGraph and ModelProfile
+  - Deterministic output
+  - Edge cases (nested functions, comments, multiline strings, syntax errors)
+  - Empty/missing source handling
+  - Unresolvable callables
+
+### Features
+
+- **AST-based analysis:** Static analysis without execution
+- **Multiple string patterns:** Handles literals, f-strings, concatenation, `.format()` calls
+- **Symbolic detection:** Marks dynamic parts as symbolic for conservative estimation
+- **Callable resolution:** Reuses patterns from `noctyl/analysis/node_annotation.py`
+- **Graceful degradation:** Returns symbolic defaults for unresolvable callables or syntax errors
+- **Deterministic output:** Sorted signatures for reproducible results
+
+### References
+
+- Implementation: `noctyl/estimation/prompt_detection.py`
+- Tests: `tests/test_prompt_detection.py`
+- Related: `noctyl/analysis/node_annotation.py` (callable resolution patterns)
+
+------------------------------------------------------------------------

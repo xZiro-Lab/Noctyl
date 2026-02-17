@@ -155,7 +155,9 @@ noctyl/
 │   ├── test_conditional_edges.py   # Conditional edge extraction tests
 │   ├── test_entry_point.py         # Entry point detection tests
 │   ├── test_repo_scanner.py        # File discovery tests
-│   └── test_example_multi_agent.py # Multi-agent example tests
+│   ├── test_example_multi_agent.py # Multi-agent example tests
+│   ├── test_estimation_model.py    # Phase 3 data model & serializer tests
+│   └── test_prompt_detection.py    # Phase 3 prompt detection & token signature tests
 │
 ├── docs/
 │   ├── flow-diagrams.md            # Pipeline & architecture Mermaid diagrams
@@ -176,8 +178,9 @@ noctyl/
 **Phase 2** (Static graph analysis: control-flow, metrics, annotations, risks) — Implemented and tested.
 **Phase 3** (Static token estimation) — In progress.
   - **Task 1** (Data model and schema 3.0 serializer) — Implemented and tested ✓
+  - **Task 2** (Prompt size detection) — Implemented and tested ✓
 
-297 tests across 17 test files, all passing. APIs and behavior may evolve as new phases are added.
+344 tests across 18 test files, all passing. APIs and behavior may evolve as new phases are added.
 
 ---
 

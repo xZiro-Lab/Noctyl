@@ -455,6 +455,101 @@ flowchart TB
 | `branch_envelope.py` | At conditional branches: compute min (cheapest path), max (most expensive), expected (midpoint); nest with loops. |
 | `aggregation` | Sum propagated costs from entry to terminals; aggregate workflow-level envelope; report `bounded` flag. |
 
+### 13b. Prompt detection detailed flow (Task 2)
+
+The prompt detection stage (`compute_node_token_signatures`) extracts string literals from node callables using AST analysis. This is the foundation for token estimation.
+
+```mermaid
+flowchart TB
+  WG[WorkflowGraph] --> CompSig[compute_node_token_signatures]
+  Source[source: str | None] --> CompSig
+  Profile[ModelProfile] --> CompSig
+  
+  CompSig -->|source is None| SymbolicAll[all nodes symbolic default]
+  CompSig -->|source provided| Parse[ast.parse source]
+  
+  Parse -->|SyntaxError| SymbolicAll
+  Parse -->|success| ForEach[for each node in WG.nodes]
+  
+  ForEach --> Resolve[resolve callable_ref]
+  Resolve -->|local function| Detect[detect_prompt_strings]
+  Resolve -->|imported/lambda/class_method| SymbolicNode[symbolic NodeTokenSignature]
+  
+  Detect --> ASTWalk[_extract_strings_from_node]
+  ASTWalk --> Fragments[list PromptFragment]
+  
+  Fragments --> Check{any fragment symbolic?}
+  Check -->|yes| SymbolicNode
+  Check -->|no| SumTokens[sum token_estimate from fragments]
+  
+  SumTokens --> CheckInput[_has_input_dependency]
+  CheckInput -->|has params/state refs| InputDep[input_dependency=True]
+  CheckInput -->|no params| NoInputDep[input_dependency=False]
+  
+  InputDep --> NodeSig[NodeTokenSignature]
+  NoInputDep --> NodeSig
+  SymbolicNode --> NodeSig
+  
+  NodeSig --> Sort[sort by node_name]
+  Sort --> Output[tuple NodeTokenSignature]
+```
+
+**String extraction (`_extract_strings_from_node`):**
+
+```mermaid
+flowchart LR
+  FuncNode[ast.FunctionDef] --> Traverse[traverse AST nodes]
+  Traverse --> Literal{ast.Constant string?}
+  Traverse --> FString{ast.JoinedStr f-string?}
+  Traverse --> Concat{ast.BinOp + ?}
+  Traverse --> Format{ast.Call .format?}
+  
+  Literal -->|yes| Frag1[PromptFragment text token_estimate symbolic=False]
+  FString -->|yes| CheckDyn{has dynamic parts?}
+  CheckDyn -->|yes| Frag2[PromptFragment symbolic=True]
+  CheckDyn -->|no| Frag3[PromptFragment symbolic=False]
+  
+  Concat -->|yes| RecurseLeft[recurse left operand]
+  Concat -->|yes| RecurseRight[recurse right operand]
+  RecurseLeft --> Combine[combine fragments]
+  RecurseRight --> Combine
+  
+  Format -->|yes| ExtractFormat[extract format string]
+  Format -->|yes| ExtractArgs[extract literal args]
+  ExtractFormat --> Frag4[PromptFragment]
+  ExtractArgs --> Frag4
+  
+  Frag1 --> Collect[collect all fragments]
+  Frag2 --> Collect
+  Frag3 --> Collect
+  Frag4 --> Collect
+  Combine --> Collect
+  
+  Collect --> Return[return list PromptFragment]
+```
+
+**Callable resolution (reuses Phase 2 patterns):**
+
+- **Local function:** `callable_ref == "func_name"` → find `ast.FunctionDef` with `name == "func_name"` in same AST
+- **Imported function:** `callable_ref == "module.func"` → mark symbolic (can't resolve body)
+- **Class method:** `callable_ref == "self.method"` → mark symbolic (can't resolve body)
+- **Lambda:** `callable_ref == "lambda"` → mark symbolic (hard to analyze)
+
+**Token estimation (`estimate_tokens_from_string`):**
+- Heuristic: `max(1, len(text) // 4)` (simple character-to-token approximation)
+- Minimum 1 token for any non-empty string
+
+**Input dependency detection (`_has_input_dependency`):**
+- Returns `True` if function has any parameters (conservative heuristic)
+- Also checks for `state` or `input` references in function body
+- Used to mark nodes that depend on runtime input
+
+**Output:** Sorted tuple of `NodeTokenSignature` (by `node_name`) with:
+- `base_prompt_tokens`: sum of token estimates from detected fragments (0 if symbolic)
+- `expansion_factor`: from `ModelProfile`
+- `input_dependency`: boolean from heuristic
+- `symbolic`: True if unresolvable, syntax error, or dynamic content detected
+
 ---
 
 ## 14. Pipeline with Phase 3 estimation output
