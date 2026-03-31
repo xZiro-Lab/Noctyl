@@ -1,5 +1,5 @@
 """
-Noctyl CLI: command-line interface for token estimation.
+Deep-Scout CLI: command-line interface for token estimation.
 """
 
 import argparse
@@ -10,6 +10,20 @@ from pathlib import Path
 from noctyl.ingestion import run_pipeline_on_directory
 
 
+def _is_legacy_noctyl_invocation(argv0: str) -> bool:
+    """Return True when invoked via the legacy `noctyl` command name."""
+    return Path(argv0).stem.lower() == "noctyl"
+
+
+def _print_legacy_noctyl_warning() -> None:
+    """Print a non-breaking deprecation warning for legacy command usage."""
+    print(
+        "Warning: `noctyl` CLI is deprecated and will be removed in the next release. "
+        "Please migrate to `deep-scout`.",
+        file=sys.stderr,
+    )
+
+
 def main() -> int:
     """
     Main CLI entry point.
@@ -18,7 +32,8 @@ def main() -> int:
         Exit code: 0 on success, 1 on errors/warnings
     """
     parser = argparse.ArgumentParser(
-        description="Noctyl: Static token usage estimator for LangGraph workflows"
+        description="Deep-Scout: Static token usage estimator for LangGraph workflows "
+        "(formerly Noctyl)"
     )
     subparsers = parser.add_subparsers(dest="command", help="Commands")
     
@@ -35,6 +50,9 @@ def main() -> int:
     )
     
     args = parser.parse_args()
+
+    if _is_legacy_noctyl_invocation(sys.argv[0]):
+        _print_legacy_noctyl_warning()
     
     if args.command == "estimate":
         return _run_estimate(args.path, args.profile, args.output)
