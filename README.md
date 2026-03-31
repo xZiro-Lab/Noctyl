@@ -1,4 +1,4 @@
-# Noctyl
+# Deep-Scout (formerly Noctyl)
 
 <p align="center">
   <img src="https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif" width="120" alt="owl" />
@@ -15,15 +15,15 @@
 
 **Static Token Usage Estimator for Multi-Agent AI Workflows**
 
-Noctyl is a static analysis tool that **estimates token usage and cost for multi-agent AI workflows *before execution***.  
+Deep-Scout is a static analysis tool that **estimates token usage and cost for multi-agent AI workflows *before execution***.  
 It analyzes a code repository, constructs a workflow graph, and produces structured reports that can be consumed by humans *and* AI assistants (Claude, Codex, Copilot, Cursor).
 
-> Noctyl does **not** execute agents, call LLM APIs, or burn tokens.  
+> Deep-Scout does **not** execute agents, call LLM APIs, or burn tokens.  
 > It provides **pre-run intelligence** for cost, safety, and efficiency.
 
 ---
 
-## Why Noctyl?
+## Why Deep-Scout?
 
 Agentic systems often fail silently due to:
 
@@ -32,7 +32,7 @@ Agentic systems often fail silently due to:
 - Hidden retry costs
 - Poor agent decomposition
 
-Noctyl answers:
+Deep-Scout answers:
 
 - *How many tokens will this workflow burn before I run it?*
 - *Where does token growth originate?*
@@ -71,14 +71,14 @@ Noctyl answers:
 
 ---
 
-## What Noctyl Is NOT
+## What Deep-Scout Is NOT
 
 - ❌ Not a runtime token monitor
 - ❌ Not a tracing or observability tool
 - ❌ Not an LLM wrapper
 - ❌ Not tied to any single agent framework
 
-Noctyl runs **before execution**, not during or after.
+Deep-Scout runs **before execution**, not during or after.
 
 ---
 
@@ -90,23 +90,38 @@ Noctyl runs **before execution**, not during or after.
 curl -fsSL https://raw.githubusercontent.com/xZiro-Lab/Noctyl/main/install.sh | bash
 ```
 
+During the transition, the installer URL remains on the current repository path and installs the new `deep-scout` package first with a compatibility fallback.
+
 ### CLI Usage
 
-After installation, use the `noctyl estimate` command to estimate token usage:
+After installation, use the `deep-scout estimate` command to estimate token usage:
 
 ```bash
 # Basic usage (default profile)
-noctyl estimate ./my_project
+deep-scout estimate ./my_project
 
 # With custom model profile
-noctyl estimate ./my_project --profile profiles/gpt-4o.yaml
+deep-scout estimate ./my_project --profile profiles/gpt-4o.yaml
 
 # Save output to file
-noctyl estimate ./my_project --output estimates.json
+deep-scout estimate ./my_project --output estimates.json
 
 # With profile and output file
-noctyl estimate ./my_project --profile profiles/gpt-4o.yaml --output estimates.json
+deep-scout estimate ./my_project --profile profiles/gpt-4o.yaml --output estimates.json
 ```
+
+`noctyl estimate ...` remains available for one compatibility release and prints a deprecation warning.
+
+## Migration (Noctyl -> Deep-Scout)
+
+- Primary command is now `deep-scout`.
+- Legacy command `noctyl` is still supported for this release.
+- Python import namespace remains `noctyl` in this phase to avoid breaking code.
+
+### Deprecation timeline
+
+- Current release: both `deep-scout` and `noctyl` CLI commands work.
+- Next release: `noctyl` CLI alias is removed; `deep-scout` remains the only supported CLI command.
 
 **Profile File Format (YAML):**
 ```yaml
@@ -135,14 +150,14 @@ model_profiles:
 ## Project structure
 
 ```
-noctyl/
+deep-scout/
 ├── README.md
 ├── LICENSE
 ├── pyproject.toml
 ├── install.sh
 ├── .gitignore
 │
-├── noctyl/                         # Core package
+├── noctyl/                         # Core package (kept as-is for compatibility)
 │   ├── __init__.py
 │   │
 │   ├── ingestion/                  # Repo scanning, detection & extraction (Phase 1)
@@ -184,7 +199,7 @@ noctyl/
 │       ├── token_modeler.py       # TokenModeler class orchestrating the pipeline
 │       └── profile_loader.py      # YAML profile loading and defaults
 │   │
-│   └── cli.py                       # CLI command interface (noctyl estimate)
+│   └── cli.py                       # CLI command interface (deep-scout estimate, legacy noctyl alias)
 │
 ├── tests/                          # 493+ tests (pytest)
 │   ├── fixtures/golden/            # 8 canonical LangGraph fixture files
@@ -245,4 +260,4 @@ noctyl/
 
 ---
 
-*Noctyl — know your token usage before you run.*
+*Deep-Scout (formerly Noctyl) — know your token usage before you run.*

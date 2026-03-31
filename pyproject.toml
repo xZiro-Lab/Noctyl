@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "noctyl"
+name = "deep-scout"
 version = "0.1.0"
 description = "Static token usage estimator for multi-agent AI workflows"
 readme = "README.md"
@@ -13,6 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
+deep-scout = "noctyl.cli:main"
 noctyl = "noctyl.cli:main"
 
 [project.optional-dependencies]

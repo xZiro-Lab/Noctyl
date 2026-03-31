@@ -31,6 +31,68 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
+def _run_python_snippet(code: str) -> tuple[int, str, str]:
+    """Run an inline Python snippet and return (exit_code, stdout, stderr)."""
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8"
+    )
+    return result.returncode, result.stdout, result.stderr
+
+
+def test_dual_cli_entrypoints_present_in_pyproject():
+    """Both deep-scout and noctyl console scripts are declared."""
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    content = pyproject_path.read_text(encoding="utf-8")
+
+    assert 'deep-scout = "noctyl.cli:main"' in content
+    assert 'noctyl = "noctyl.cli:main"' in content
+
+
+def test_detect_legacy_noctyl_invocation():
+    """Legacy command detection works for common executable names."""
+    code = """
+import sys
+import types
+
+stub = types.ModuleType("noctyl.ingestion")
+stub.run_pipeline_on_directory = lambda *args, **kwargs: ([], [])
+sys.modules["noctyl.ingestion"] = stub
+
+import noctyl.cli as cli
+
+print(cli._is_legacy_noctyl_invocation("noctyl"))
+print(cli._is_legacy_noctyl_invocation("noctyl.exe"))
+print(cli._is_legacy_noctyl_invocation("deep-scout"))
+"""
+    exit_code, stdout, stderr = _run_python_snippet(code)
+
+    assert exit_code == 0
+    assert stderr == ""
+    assert stdout.splitlines() == ["True", "True", "False"]
+
+
+def test_print_legacy_noctyl_warning():
+    """Legacy warning explicitly guides users to deep-scout."""
+    code = """
+import sys
+import types
+
+stub = types.ModuleType("noctyl.ingestion")
+stub.run_pipeline_on_directory = lambda *args, **kwargs: ([], [])
+sys.modules["noctyl.ingestion"] = stub
+
+import noctyl.cli as cli
+
+cli._print_legacy_noctyl_warning()
+"""
+    exit_code, stdout, stderr = _run_python_snippet(code)
+
+    assert exit_code == 0
+    assert stdout == ""
+    assert "deprecated" in stderr.lower()
+    assert "deep-scout" in stderr
+
+
 def test_cli_estimate_basic():
     """Basic estimate command works."""
     source = """
